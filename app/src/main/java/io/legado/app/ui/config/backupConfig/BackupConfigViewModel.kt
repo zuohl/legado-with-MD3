@@ -1,9 +1,13 @@
 package io.legado.app.ui.config.backupConfig
 
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.legado.app.R
 import io.legado.app.domain.usecase.WebDavBackupUseCase
 import io.legado.app.help.storage.Backup
+import io.legado.app.help.storage.Restore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -46,16 +50,16 @@ class BackupConfigViewModel(
         }
     }
 
-    fun backup(backupPath: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
+    fun backup(backupPath: String, mode: String = "both", onSuccess: () -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                Backup.backupLocked(appCtx, backupPath)
+                Backup.backupLocked(appCtx, backupPath, mode)
                 withContext(Dispatchers.Main) {
                     onSuccess()
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    onError(e.localizedMessage ?: "备份出错")
+                    onError(e.localizedMessage ?: appCtx.getString(R.string.backup_error))
                 }
             }
         }
@@ -76,7 +80,22 @@ class BackupConfigViewModel(
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    onError(e.localizedMessage ?: "恢复出错")
+                    onError(e.localizedMessage ?: appCtx.getString(R.string.restore_error))
+                }
+            }
+        }
+    }
+
+    fun restore(context: Context, uri: Uri, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                Restore.restore(context, uri)
+                withContext(Dispatchers.Main) {
+                    onSuccess()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onError(e.localizedMessage ?: appCtx.getString(R.string.restore_error))
                 }
             }
         }

@@ -29,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
@@ -43,10 +44,11 @@ import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.widget.components.AppTextField
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
 import io.legado.app.ui.widget.components.button.ConfirmDismissButtonsRow
-import io.legado.app.ui.widget.components.button.SmallIconButton
+import io.legado.app.ui.widget.components.button.series.SmallPlainButton
 import io.legado.app.ui.widget.components.card.GlassCard
 import io.legado.app.ui.widget.components.card.SelectionItemCard
 import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
+import io.legado.app.ui.widget.components.progressIndicator.AppCircularProgressIndicator
 import io.legado.app.ui.widget.components.settingItem.SwitchSettingItem
 import io.legado.app.ui.widget.components.text.AppText
 import io.legado.app.utils.GSON
@@ -72,6 +74,7 @@ fun SourceInputDialog(
                 AppTextField(
                     value = text,
                     onValueChange = { text = it },
+                    backgroundColor = LegadoTheme.colorScheme.onSheetContent,
                     label = hint,
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 5
@@ -118,6 +121,32 @@ fun <T> BatchImportDialog(
     itemTitle: (data: T) -> String,
     itemSubtitle: (data: T) -> String? = { null }
 ) {
+    AppAlertDialog(
+        data = importState as? BaseImportUiState.Loading,
+        onDismissRequest = onDismissRequest,
+        title = stringResource(R.string.loading),
+        content = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                AppCircularProgressIndicator()
+            }
+        }
+    )
+
+    AppAlertDialog(
+        data = importState as? BaseImportUiState.Error,
+        onDismissRequest = onDismissRequest,
+        title = stringResource(R.string.error),
+        onConfirm = { onDismissRequest() },
+        content = { error ->
+            AppText(error.msg)
+        }
+    )
+
     val show = importState is BaseImportUiState.Success<T>
 
     var cachedState by remember { mutableStateOf<BaseImportUiState.Success<T>?>(null) }
@@ -154,9 +183,9 @@ fun <T> BatchImportDialog(
         title = sheetTitle,
         startAction = if (isEditing) {
             {
-                SmallIconButton(
+                SmallPlainButton(
                     onClick = { editingIndex = null },
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "返回"
                 )
             }
@@ -167,9 +196,9 @@ fun <T> BatchImportDialog(
             {
                 Row {
                     topBarActions()
-                    SmallIconButton(
+                    SmallPlainButton(
                         onClick = { onToggleAll(!allSelected) },
-                        imageVector = Icons.Default.SelectAll,
+                        icon = Icons.Default.SelectAll,
                         contentDescription = if (allSelected) "全不选" else "全选"
                     )
                 }
@@ -342,9 +371,9 @@ fun ImportItemRow(
                 modifier = Modifier.padding(end = 4.dp)
             )
 
-            SmallIconButton(
+            SmallPlainButton(
                 onClick = onInfoClick,
-                imageVector = Icons.Default.Info,
+                icon = Icons.Default.Info,
                 contentDescription = "详情"
             )
         }

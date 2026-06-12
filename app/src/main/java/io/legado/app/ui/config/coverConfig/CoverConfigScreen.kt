@@ -25,13 +25,13 @@ import io.legado.app.constant.PreferKey
 import io.legado.app.ui.theme.adaptiveContentPadding
 import io.legado.app.ui.widget.components.AppScaffold
 import io.legado.app.ui.widget.components.SplicedColumnGroup
-import io.legado.app.ui.widget.components.topbar.TopBarNavigationButton
 import io.legado.app.ui.widget.components.dialog.ColorPickerSheet
 import io.legado.app.ui.widget.components.settingItem.ClickableSettingItem
 import io.legado.app.ui.widget.components.settingItem.DropdownListSettingItem
 import io.legado.app.ui.widget.components.settingItem.SwitchSettingItem
 import io.legado.app.ui.widget.components.topbar.GlassMediumFlexibleTopAppBar
 import io.legado.app.ui.widget.components.topbar.GlassTopAppBarDefaults
+import io.legado.app.ui.widget.components.topbar.TopBarNavigationButton
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -130,13 +130,32 @@ fun CoverConfigScreen(
                 )
             }
 
+                SplicedColumnGroup(title = stringResource(R.string.network_book_badge_setting)) {
+                    DropdownListSettingItem(
+                        title = stringResource(R.string.network_book_badge_setting),
+                        selectedValue = CoverConfig.exploreFilterState.toString(),
+                        displayEntries = arrayOf(
+                            stringResource(R.string.filter_show_all),
+                            stringResource(R.string.filter_hide_in_shelf),
+                            stringResource(R.string.filter_hide_same_name_author),
+                            stringResource(R.string.filter_show_not_in_shelf_only)
+                        ),
+                        entryValues = arrayOf("0", "1", "2", "3"),
+                        onValueChange = {
+                            CoverConfig.exploreFilterState = it.toInt()
+                        }
+                    )
+                }
+
             SplicedColumnGroup(title = stringResource(R.string.day)) {
                 val coverCount = CoverConfig.defaultCover.split(",").filter { it.isNotBlank() }.size
                 ClickableSettingItem(
                     title = stringResource(R.string.default_cover),
-                    description = if (coverCount > 0) "已选择 $coverCount 张图片" else stringResource(
-                        R.string.select_image
-                    ),
+                    description = if (coverCount > 0) {
+                        stringResource(R.string.cover_selected_images_count, coverCount)
+                    } else {
+                        stringResource(R.string.select_image)
+                    },
                     onClick = { manageKey = PreferKey.defaultCover }
                 )
 
@@ -191,9 +210,11 @@ fun CoverConfigScreen(
                     CoverConfig.defaultCoverDark.split(",").filter { it.isNotBlank() }.size
                 ClickableSettingItem(
                     title = stringResource(R.string.default_cover),
-                    description = if (coverCount > 0) "已选择 $coverCount 张图片" else stringResource(
-                        R.string.select_image
-                    ),
+                    description = if (coverCount > 0) {
+                        stringResource(R.string.cover_selected_images_count, coverCount)
+                    } else {
+                        stringResource(R.string.select_image)
+                    },
                     onClick = { manageKey = PreferKey.defaultCoverDark }
                 )
 

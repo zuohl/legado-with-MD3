@@ -1,9 +1,13 @@
 package io.legado.app.ui.widget.components.topbar
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
@@ -16,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import io.legado.app.ui.config.themeConfig.ThemeConfig
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.theme.LocalHazeState
@@ -46,15 +51,31 @@ fun GlassMediumFlexibleTopAppBar(
     val isMiuix = ThemeResolver.isMiuixEngine(composeEngine)
 
     val containerColor = if (!isMiuix) {
-        GlassTopAppBarDefaults.containerColor()
+        if (ThemeConfig.enableDeepPersonalization && ThemeConfig.secondaryThemeColor != 0) {
+            Color(ThemeConfig.secondaryThemeColor)
+        } else {
+            GlassTopAppBarDefaults.containerColor()
+        }
     } else {
-        GlassTopAppBarDefaults.getMiuixAppBarColor()
+        if (ThemeConfig.enableDeepPersonalization && ThemeConfig.secondaryThemeColor != 0) {
+            Color(ThemeConfig.secondaryThemeColor)
+        } else {
+            GlassTopAppBarDefaults.getMiuixAppBarColor()
+        }
     }
 
     val scrolledColor = if (!isMiuix) {
-        GlassTopAppBarDefaults.scrolledContainerColor()
+        if (ThemeConfig.enableDeepPersonalization && ThemeConfig.secondaryThemeColor != 0) {
+            Color(ThemeConfig.secondaryThemeColor)
+        } else {
+            GlassTopAppBarDefaults.scrolledContainerColor()
+        }
     } else {
-        GlassTopAppBarDefaults.getMiuixAppBarColor()
+        if (ThemeConfig.enableDeepPersonalization && ThemeConfig.secondaryThemeColor != 0) {
+            Color(ThemeConfig.secondaryThemeColor)
+        } else {
+            GlassTopAppBarDefaults.getMiuixAppBarColor()
+        }
     }
 
     val animatedColor = if (!isMiuix) {
@@ -65,7 +86,9 @@ fun GlassMediumFlexibleTopAppBar(
     }
 
     val finalModifier = if (hazeState != null) {
-        modifier.responsiveHazeEffect(state = hazeState)
+        modifier
+            .background(color = animatedColor)
+            .responsiveHazeEffect(state = hazeState)
     } else {
         modifier.background(color = animatedColor)
     }
@@ -100,7 +123,7 @@ fun GlassMediumFlexibleTopAppBar(
                             AdaptiveAnimatedText(
                                 text = title,
                                 useCharMode = useCharMode,
-                                maxLines = 1,
+                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
                         },
@@ -110,7 +133,13 @@ fun GlassMediumFlexibleTopAppBar(
                             }
                         },
                         navigationIcon = navigationIcon,
-                        actions = actions,
+                        actions = {
+                            Box(modifier = Modifier.padding(end = 12.dp)) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) { actions() }
+                            }
+                        },
                         scrollBehavior = (scrollBehavior as? M3GlassScrollBehavior)?.m3Behavior,
                         colors = transparentColors
                     )
@@ -137,7 +166,15 @@ fun GlassMediumFlexibleTopAppBar(
                             }
                         },
                         navigationIcon = navigationIcon,
-                        actions = actions,
+                        actions = {
+                            Box(modifier = Modifier.padding(end = 12.dp)) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    actions()
+                                }
+                            }
+                        },
                         scrollBehavior = (scrollBehavior as? M3GlassScrollBehavior)?.m3Behavior,
                         colors = transparentColors
                     )
@@ -152,10 +189,17 @@ fun GlassMediumFlexibleTopAppBar(
 object GlassTopAppBarDefaults {
 
     @Composable
-    fun getMiuixAppBarColor() = GlassDefaults.glassColor(
-        noBlurColor = MiuixTheme.colorScheme.surface,
-        blurAlpha = GlassDefaults.TransparentAlpha
-    )
+    fun getMiuixAppBarColor(): Color {
+        val baseColor = if (ThemeConfig.enableDeepPersonalization && ThemeConfig.secondaryThemeColor != 0) {
+            Color(ThemeConfig.secondaryThemeColor)
+        } else {
+            MiuixTheme.colorScheme.surface
+        }
+        return GlassDefaults.glassColor(
+            noBlurColor = baseColor,
+            blurAlpha = GlassDefaults.TransparentAlpha
+        )
+    }
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
@@ -174,15 +218,25 @@ object GlassTopAppBarDefaults {
     @Composable
     fun glassColors(): TopAppBarColors {
 
+        val containerBaseColor = if (ThemeConfig.enableDeepPersonalization && ThemeConfig.secondaryThemeColor != 0) {
+            Color(ThemeConfig.secondaryThemeColor)
+        } else {
+            MaterialTheme.colorScheme.surface
+        }
         val containerColor = GlassDefaults.glassColor(
-            noBlurColor = MaterialTheme.colorScheme.surface,
+            noBlurColor = containerBaseColor,
             blurAlpha = GlassDefaults.TransparentAlpha
         )
 
-        val scrolledContainerColor = if (ThemeConfig.enableBlur) {
-            MaterialTheme.colorScheme.surface.copy(alpha = GlassDefaults.TransparentAlpha)
+        val scrolledBaseColor = if (ThemeConfig.enableDeepPersonalization && ThemeConfig.secondaryThemeColor != 0) {
+            Color(ThemeConfig.secondaryThemeColor)
         } else {
             MaterialTheme.colorScheme.surfaceContainer
+        }
+        val scrolledContainerColor = if (ThemeConfig.enableBlur) {
+            scrolledBaseColor.copy(alpha = GlassDefaults.TransparentAlpha)
+        } else {
+            scrolledBaseColor
         }
 
         return TopAppBarDefaults.topAppBarColors(
@@ -193,20 +247,30 @@ object GlassTopAppBarDefaults {
 
     @Composable
     fun containerColor(): Color {
-        val baseColor = GlassDefaults.glassColor(
-            noBlurColor = MaterialTheme.colorScheme.surface,
+        val baseColor = if (ThemeConfig.enableDeepPersonalization && ThemeConfig.secondaryThemeColor != 0) {
+            Color(ThemeConfig.secondaryThemeColor)
+        } else {
+            MaterialTheme.colorScheme.surface
+        }
+        val glassColor = GlassDefaults.glassColor(
+            noBlurColor = baseColor,
             blurAlpha = GlassDefaults.TransparentAlpha
         )
-        return applyTopBarOpacity(baseColor)
+        return applyTopBarOpacity(glassColor)
     }
 
     @Composable
     fun scrolledContainerColor(): Color {
-        val baseColor = GlassDefaults.glassColor(
-            noBlurColor = MaterialTheme.colorScheme.surfaceContainer,
+        val baseColor = if (ThemeConfig.enableDeepPersonalization && ThemeConfig.secondaryThemeColor != 0) {
+            Color(ThemeConfig.secondaryThemeColor)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainer
+        }
+        val glassColor = GlassDefaults.glassColor(
+            noBlurColor = baseColor,
             blurAlpha = GlassDefaults.TransparentAlpha
         )
-        return applyTopBarOpacity(baseColor)
+        return applyTopBarOpacity(glassColor)
     }
 
     @Composable

@@ -1,7 +1,6 @@
 package io.legado.app.ui.main
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.appcompat.app.AppCompatActivity
@@ -51,27 +50,31 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import io.legado.app.R
+import io.legado.app.ui.config.themeConfig.ThemeConfig
 import io.legado.app.ui.main.bookshelf.BookshelfScreen
 import io.legado.app.ui.main.bookshelf.BookshelfViewModel
 import io.legado.app.ui.main.explore.ExploreScreen
+import io.legado.app.ui.main.homepage.HomepageScreen
 import io.legado.app.ui.main.my.MyScreen
 import io.legado.app.ui.main.my.PrefClickEvent
 import io.legado.app.ui.main.rss.RssScreen
-import io.legado.app.ui.theme.regularHazeEffect
-import io.legado.app.ui.widget.components.AppNavigationBar
-import io.legado.app.ui.widget.components.AppNavigationBarItem
 import io.legado.app.ui.widget.components.AppScaffold
 import io.legado.app.ui.widget.components.FloatingBottomBar
 import io.legado.app.ui.widget.components.FloatingBottomBarItem
@@ -80,12 +83,15 @@ import io.legado.app.ui.widget.components.icon.AppIcon
 import io.legado.app.ui.widget.components.icon.AppIcons
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenu
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
+import io.legado.app.ui.widget.components.navigation.AppNavigationBar
+import io.legado.app.ui.widget.components.navigation.AppNavigationBarItem
 import io.legado.app.ui.widget.components.text.AppText
 import io.legado.app.ui.widget.dialog.TextDialog
 import io.legado.app.utils.sendToClip
 import io.legado.app.utils.showDialogFragment
 import io.legado.app.utils.startActivityForBook
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.androidx.compose.koinViewModel
@@ -104,30 +110,35 @@ fun MainScreen(
     onNavigateToLocalImport: () -> Unit,
     onNavigateToCache: (Long) -> Unit,
     onNavigateToBookCacheManage: () -> Unit,
-    onNavigateToBookInfo: (name: String, author: String, bookUrl: String) -> Unit,
+    onNavigateToBookInfo: (name: String, author: String, bookUrl: String, origin: String?, coverPath: String?, sharedCoverKey: String?) -> Unit,
     onNavigateToExploreShow: (title: String?, sourceUrl: String, exploreUrl: String?) -> Unit,
     onNavigateToRssSort: (sourceUrl: String, sortUrl: String?, key: String?) -> Unit,
     onNavigateToRssRead: (title: String?, origin: String, link: String?, openUrl: String?) -> Unit,
+    onNavigateToRssFavorites: () -> Unit,
+    onNavigateToRuleSub: () -> Unit,
+    onNavigateToReadRecord: () -> Unit,
+    onNavigateToAbout: () -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val mainUiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val defaultHelpTitle = stringResource(R.string.help)
 
     LaunchedEffect(viewModel, context) {
-        viewModel.effects.collect { effect ->
+        viewModel.effects.collectLatest { effect ->
             when (effect) {
                 is MainEffect.OpenUrl -> {
                     context.startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse(effect.url))
+                        Intent(Intent.ACTION_VIEW, effect.url.toUri())
                     )
                 }
 
                 is MainEffect.CopyUrl -> context.sendToClip(effect.url)
                 is MainEffect.ShowMarkdown -> {
-                    val activity = context as? AppCompatActivity ?: return@collect
-                    val title = effect.title.ifBlank { context.getString(R.string.help) }
+                    val activity = context as? AppCompatActivity ?: return@collectLatest
+                    val title = effect.title.ifBlank { defaultHelpTitle }
                     val mdText = withContext(Dispatchers.IO) {
                         context.assets
                             .open("web/help/md/${effect.path}.md")
@@ -144,12 +155,18 @@ fun MainScreen(
                 }
 
                 MainEffect.ExitApp -> (context as? ComponentActivity)?.finish()
+                MainEffect.NavigateToReadRecord -> onNavigateToReadRecord()
+                MainEffect.NavigateToAbout -> onNavigateToAbout()
             }
         }
     }
 
     val hazeState = remember { HazeState() }
-    val floatingBarSurfaceColor = MaterialTheme.colorScheme.surface
+    val floatingBarSurfaceColor = if (ThemeConfig.enableDeepPersonalization && ThemeConfig.secondaryThemeColor != 0) {
+        Color(ThemeConfig.secondaryThemeColor)
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
     val floatingBarBackdrop = rememberLayerBackdrop {
         drawRect(floatingBarSurfaceColor)
         drawContent()
@@ -217,7 +234,7 @@ fun MainScreen(
                             modifier = Modifier.padding(start = 20.dp),
                             onClick = { onNavigateToSearch(null) },
                             expanded = expanded,
-                            icon = { Icon(Icons.Default.Search, contentDescription = null) },
+                            icon = { AppIcon(Icons.Default.Search, contentDescription = null) },
                             text = { AppText(stringResource(R.string.search)) }
                         )
                     }
@@ -229,6 +246,9 @@ fun MainScreen(
                     val haptic = LocalHapticFeedback.current
 
                     WideNavigationRailItem(
+                        modifier = Modifier.semantics(mergeDescendants = true) {
+                            contentDescription = "nav_${destination.route}"
+                        },
                         railExpanded = navState.targetValue == WideNavigationRailValue.Expanded,
                         selected = selected,
                         onClick = {
@@ -270,7 +290,8 @@ fun MainScreen(
                             }
                         },
                         label = if (labelVisibilityMode != "unlabeled") {
-                            { AppText(stringResource(destination.labelId)) }
+                            val hasCustomIcon = destination.customIconPath.isNotEmpty()
+                            if (hasCustomIcon) null else {{ AppText(stringResource(destination.labelId)) }}
                         } else null
                     )
                 }
@@ -280,88 +301,38 @@ fun MainScreen(
         AppScaffold(
             modifier = Modifier.weight(1f),
             bottomBar = {
-                if (!useRail && mainUiState.showBottomView) {
-                    if (useFloatingBottomBar) {
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            FloatingBottomBar(
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null,
-                                        onClick = {}
-                                    )
-                                    .padding(
-                                        start = 16.dp,
-                                        end = 16.dp,
-                                        bottom = 12.dp + WindowInsets.navigationBars
-                                            .asPaddingValues()
-                                            .calculateBottomPadding()
-                                    ),
-                                selectedIndex = { pagerState.targetPage },
-                                onSelected = { index ->
-                                    coroutineScope.launch {
-                                        pagerState.animateScrollToPage(index)
-                                    }
+                if (!useRail && mainUiState.showBottomView && !useFloatingBottomBar) {
+                    AppNavigationBar(
+                        showLabel = showLabel,
+                        alwaysShowLabel = alwaysShowLabel
+                    ) {
+                        destinations.forEachIndexed { index, destination ->
+                            val selected = pagerState.targetPage == index
+                            val customIconPath = destination.customIconPath
+                            AppNavigationBarItem(
+                                modifier = Modifier.semantics(mergeDescendants = true) {
+                                    contentDescription = "nav_${destination.route}"
                                 },
-                                backdrop = floatingBarBackdrop,
-                                tabsCount = destinations.size,
-                                isBlurEnabled = useLiquidGlass
-                            ) {
-                                destinations.forEachIndexed { index, destination ->
-                                    val selected = pagerState.targetPage == index
-                                    FloatingBottomBarItem(
-                                        onClick = {
-                                            coroutineScope.launch {
-                                                pagerState.animateScrollToPage(index)
-                                            }
-                                        },
-                                        modifier = Modifier.defaultMinSize(minWidth = 76.dp)
-                                    ) {
-                                        NavigationIcon(
-                                            destination = destination,
-                                            selected = selected
-                                        )
-                                        if (showLabel && (alwaysShowLabel || selected)) {
-                                            AppText(
-                                                text = stringResource(destination.labelId),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        AppNavigationBar(
-                            modifier = Modifier
-                                .regularHazeEffect(state = hazeState)
-                        ) {
-                            destinations.forEachIndexed { index, destination ->
-                                val selected = pagerState.targetPage == index
-                                AppNavigationBarItem(
-                                    selected = selected,
-                                    onClick = {
-                                        coroutineScope.launch { pagerState.animateScrollToPage(index) }
-                                    },
-                                    labelString = stringResource(destination.labelId),
-                                    iconVector = AppIcons.mainDestination(destination, selected),
-                                    m3Icon = {
-                                        NavigationIcon(
-                                            destination = destination,
-                                            selected = selected
-                                        )
-                                    },
-                                    m3IndicatorColor = GlassDefaults.glassColor(
-                                        noBlurColor = MaterialTheme.colorScheme.secondaryContainer,
-                                        blurAlpha = GlassDefaults.ThickBlurAlpha
-                                    ),
-                                    m3ShowLabel = showLabel,
-                                    m3AlwaysShowLabel = alwaysShowLabel
-                                )
-                            }
+                                selected = selected,
+                                onClick = {
+                                    coroutineScope.launch { pagerState.animateScrollToPage(index) }
+                                },
+                                labelString = stringResource(destination.labelId),
+                                iconVector = AppIcons.mainDestination(destination, selected),
+                                m3Icon = {
+                                    NavigationIcon(
+                                        destination = destination,
+                                        selected = selected
+                                    )
+                                },
+                                m3IndicatorColor = GlassDefaults.glassColor(
+                                    noBlurColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    blurAlpha = GlassDefaults.ThickBlurAlpha
+                                ),
+                                m3ShowLabel = showLabel && !customIconPath.isNotEmpty(),
+                                m3AlwaysShowLabel = alwaysShowLabel,
+                                useCustomIcon = customIconPath.isNotEmpty()
+                            )
                         }
                     }
                 }
@@ -369,60 +340,163 @@ fun MainScreen(
             contentWindowInsets = WindowInsets(0)
         ) { _ ->
             Box(
-                modifier = Modifier
-                    .hazeSource(hazeState)
-                    .then(
-                        if (useFloatingBottomBar) {
-                            Modifier.layerBackdrop(floatingBarBackdrop)
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Box(
+                    modifier = Modifier.then(
+                        if (useLiquidGlass) {
+                            Modifier
+                                .hazeSource(hazeState)
+                                .layerBackdrop(floatingBarBackdrop)
                         } else {
                             Modifier
                         }
                     )
-            ) {
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxSize(),
-                    userScrollEnabled = true,
-                    beyondViewportPageCount = 1
-                ) { page ->
-                    val destination = destinations.getOrNull(page) ?: return@HorizontalPager
-                    when (destination) {
-                        MainDestination.Bookshelf -> BookshelfScreen(
-                            onBookClick = { book ->
-                                context.startActivityForBook(book)
-                            },
-                            onBookLongClick = { book ->
-                                onNavigateToBookInfo(book.name, book.author, book.bookUrl)
-                            },
-                            onNavigateToSearch = { query -> onNavigateToSearch(query) },
-                            onNavigateToRemoteImport = onNavigateToRemoteImport,
-                            onNavigateToLocalImport = onNavigateToLocalImport,
-                            onNavigateToCache = onNavigateToCache,
-                            sharedTransitionScope = sharedTransitionScope,
-                            animatedVisibilityScope = animatedVisibilityScope,
-                        )
+                ) {
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(
+                                with(sharedTransitionScope) {
+                                    if (this != null) Modifier.skipToLookaheadSize() else Modifier
+                                }
+                            ),
+                        userScrollEnabled = true,
+                        beyondViewportPageCount = 4
+                    ) { page ->
+                        val destination = destinations.getOrNull(page) ?: return@HorizontalPager
+                        when (destination) {
+                            MainDestination.Home -> HomepageScreen(
+                                onBookClick = { name, author, bookUrl, origin, coverPath, sharedCoverKey ->
+                                    onNavigateToBookInfo(
+                                        name ?: "",
+                                        author ?: "",
+                                        bookUrl,
+                                        origin,
+                                        coverPath,
+                                        sharedCoverKey
+                                    )
+                                },
+                                onModuleHeaderClick = { title, sourceUrl, exploreUrl ->
+                                    onNavigateToExploreShow(title, sourceUrl, exploreUrl)
+                                },
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope,
+                            )
 
-                        MainDestination.Explore -> ExploreScreen(
-                            onOpenExploreShow = onNavigateToExploreShow
-                        )
-                        MainDestination.Rss -> RssScreen(
-                            onOpenSort = { sourceUrl, sortUrl, key ->
-                                onNavigateToRssSort(sourceUrl, sortUrl, key)
+                            MainDestination.Bookshelf -> BookshelfScreen(
+                                onBookClick = { book ->
+                                    context.startActivityForBook(book)
+                                },
+                                onBookLongClick = { book, sharedCoverKey ->
+                                    onNavigateToBookInfo(
+                                        book.name,
+                                        book.author,
+                                        book.bookUrl,
+                                        book.origin,
+                                        book.getDisplayCover(),
+                                        sharedCoverKey
+                                    )
+                                },
+                                onNavigateToSearch = { query -> onNavigateToSearch(query) },
+                                onNavigateToRemoteImport = onNavigateToRemoteImport,
+                                onNavigateToLocalImport = onNavigateToLocalImport,
+                                onNavigateToCache = onNavigateToCache,
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope,
+                            )
+
+                            MainDestination.Explore -> ExploreScreen(
+                                onOpenExploreShow = onNavigateToExploreShow
+                            )
+                            MainDestination.Rss -> RssScreen(
+                                onOpenSort = { sourceUrl, sortUrl, key ->
+                                    onNavigateToRssSort(sourceUrl, sortUrl, key)
+                                },
+                                onOpenRead = { title, origin, link, openUrl ->
+                                    onNavigateToRssRead(title, origin, link, openUrl)
+                                },
+                                onOpenFavorites = onNavigateToRssFavorites,
+                                onOpenRuleSub = onNavigateToRuleSub
+                            )
+                            MainDestination.My -> MyScreen(
+                                onOpenSettings = onOpenSettings,
+                                onNavigate = { event ->
+                                    when (event) {
+                                        PrefClickEvent.OpenBookCacheManage -> onNavigateToBookCacheManage()
+                                        PrefClickEvent.OpenReadRecord -> onNavigateToReadRecord()
+                                        else -> viewModel.onPrefClickEvent(event)
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+
+                if (!useRail && mainUiState.showBottomView && useFloatingBottomBar) {
+                    Box(modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                    ) {
+                        FloatingBottomBar(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = {}
+                                )
+                                .padding(
+                                    start = 16.dp,
+                                    end = 16.dp,
+                                    bottom = 12.dp + WindowInsets.navigationBars
+                                        .asPaddingValues()
+                                        .calculateBottomPadding()
+                                ),
+                            selectedIndex = { pagerState.targetPage },
+                            onSelected = { index ->
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(index)
+                                }
                             },
-                            onOpenRead = { title, origin, link, openUrl ->
-                                onNavigateToRssRead(title, origin, link, openUrl)
+                            backdrop = floatingBarBackdrop,
+                            tabsCount = destinations.size,
+                            isBlurEnabled = useLiquidGlass,
+                            hasCustomIcons = destinations.any { dest ->
+                                dest.customIconPath.isNotEmpty()
                             }
-                        )
-                        MainDestination.My -> MyScreen(
-                            onOpenSettings = onOpenSettings,
-                            onNavigate = { event ->
-                                if (event == PrefClickEvent.OpenBookCacheManage) {
-                                    onNavigateToBookCacheManage()
-                                } else {
-                                    viewModel.onPrefClickEvent(event)
+                        ) {
+                            destinations.forEachIndexed { index, destination ->
+                                val selected = pagerState.targetPage == index
+                                val hasCustomIcon = destination.customIconPath.isNotEmpty()
+                                FloatingBottomBarItem(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            pagerState.animateScrollToPage(index)
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .defaultMinSize(minWidth = 76.dp)
+                                        .semantics(mergeDescendants = true) {
+                                            contentDescription = "nav_${destination.route}"
+                                        }
+                                ) {
+                                    NavigationIcon(
+                                        destination = destination,
+                                        selected = selected
+                                    )
+                                    if (!hasCustomIcon && showLabel && (alwaysShowLabel || selected)) {
+                                        AppText(
+                                            text = stringResource(destination.labelId),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
                             }
-                        )
+                        }
                     }
                 }
             }
@@ -474,6 +548,15 @@ private fun NavigationIcon(
     selected: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val icon = AppIcons.mainDestination(destination, selected)
-    AppIcon(icon, contentDescription = null, modifier = modifier)
+    val customIconPath = destination.customIconPath
+    if (customIconPath.isNotEmpty()) {
+        AsyncImage(
+            model = customIconPath,
+            contentDescription = null,
+            modifier = modifier.size(40.dp)
+        )
+    } else {
+        val icon = AppIcons.mainDestination(destination, selected)
+        AppIcon(icon, contentDescription = null, modifier = modifier)
+    }
 }

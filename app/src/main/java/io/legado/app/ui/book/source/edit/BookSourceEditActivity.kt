@@ -68,6 +68,7 @@ class BookSourceEditActivity :
     private val sourceEntities: ArrayList<EditEntity> = ArrayList()
     private val searchEntities: ArrayList<EditEntity> = ArrayList()
     private val exploreEntities: ArrayList<EditEntity> = ArrayList()
+    private val homepageEntities: ArrayList<EditEntity> = ArrayList()
     private val infoEntities: ArrayList<EditEntity> = ArrayList()
     private val tocEntities: ArrayList<EditEntity> = ArrayList()
     private val contentEntities: ArrayList<EditEntity> = ArrayList()
@@ -175,6 +176,9 @@ class BookSourceEditActivity :
             setText(R.string.source_tab_find)
         })
         binding.tabLayout.addTab(binding.tabLayout.newTab().apply {
+            setText(R.string.source_tab_homepage)
+        })
+        binding.tabLayout.addTab(binding.tabLayout.newTab().apply {
             setText(R.string.source_tab_info)
         })
         binding.tabLayout.addTab(binding.tabLayout.newTab().apply {
@@ -234,10 +238,10 @@ class BookSourceEditActivity :
         adapter.editEntities = when (tabPosition) {
             1 -> searchEntities
             2 -> exploreEntities
-            3 -> infoEntities
-            4 -> tocEntities
-            5 -> contentEntities
-//            6 -> reviewEntities
+            3 -> homepageEntities
+            4 -> infoEntities
+            5 -> tocEntities
+            6 -> contentEntities
             else -> sourceEntities
         }
         binding.recyclerView.scrollToPosition(0)
@@ -306,6 +310,11 @@ class BookSourceEditActivity :
             add(EditEntity("coverUrl", er.coverUrl, R.string.rule_cover_url))
             add(EditEntity("bookUrl", er.bookUrl, R.string.r_book_url))
         }
+        // 主页模块
+        homepageEntities.clear()
+        homepageEntities.apply {
+            add(EditEntity("homepageModules", bs.homepageModules, R.string.homepage_modules))
+        }
         // 详情页
         val ir = bs.getBookInfoRule()
         infoEntities.clear()
@@ -321,6 +330,7 @@ class BookSourceEditActivity :
             add(EditEntity("tocUrl", ir.tocUrl, R.string.rule_toc_url))
             add(EditEntity("canReName", ir.canReName, R.string.rule_can_re_name))
             add(EditEntity("downloadUrls", ir.downloadUrls, R.string.download_url_rule))
+            add(EditEntity("relatedBooks", ir.relatedBooks, R.string.related_books))
         }
         // 目录页
         val tr = bs.getTocRule()
@@ -342,6 +352,7 @@ class BookSourceEditActivity :
         contentEntities.clear()
         contentEntities.apply {
             add(EditEntity("content", cr.content, R.string.rule_book_content))
+            add(EditEntity("subContent", cr.subContent, R.string.rule_sub_content))
             add(EditEntity("title", cr.title, R.string.rule_chapter_name))
             add(EditEntity("nextContentUrl", cr.nextContentUrl, R.string.rule_next_content))
             add(EditEntity("webJs", cr.webJs, R.string.rule_web_js))
@@ -351,7 +362,7 @@ class BookSourceEditActivity :
             add(EditEntity("imageDecode", cr.imageDecode, R.string.rule_image_decode))
             add(EditEntity("payAction", cr.payAction, R.string.rule_pay_action))
         }
-        // 段评
+
 //        val rr = bs.getReviewRule()
 //        reviewEntities.clear()
 //        reviewEntities.apply {
@@ -472,6 +483,12 @@ class BookSourceEditActivity :
                     viewModel.ruleComplete(it.value, exploreRule.bookList, 2)
             }
         }
+        homepageEntities.forEach {
+            it.value = it.value?.takeIf { s -> s.isNotBlank() }
+            when (it.key) {
+                "homepageModules" -> source.homepageModules = it.value
+            }
+        }
         infoEntities.forEach {
             it.value = it.value?.takeIf { s -> s.isNotBlank() }
             when (it.key) {
@@ -504,6 +521,7 @@ class BookSourceEditActivity :
                 "canReName" -> bookInfoRule.canReName = it.value
                 "downloadUrls" -> bookInfoRule.downloadUrls =
                     viewModel.ruleComplete(it.value, bookInfoRule.init)
+                "relatedBooks" -> bookInfoRule.relatedBooks = it.value
             }
         }
         tocEntities.forEach {
@@ -530,6 +548,7 @@ class BookSourceEditActivity :
             it.value = it.value?.takeIf { s -> s.isNotBlank() }
             when (it.key) {
                 "content" -> contentRule.content = viewModel.ruleComplete(it.value)
+                "subContent" -> contentRule.subContent = viewModel.ruleComplete(it.value)
                 "title" -> contentRule.title = viewModel.ruleComplete(it.value)
                 "nextContentUrl" -> contentRule.nextContentUrl =
                     viewModel.ruleComplete(it.value, type = 2)

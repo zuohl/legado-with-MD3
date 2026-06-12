@@ -2,49 +2,75 @@ package io.legado.app.ui.book.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import io.legado.app.constant.PreferKey
 import io.legado.app.data.entities.BookSourcePart
 import io.legado.app.data.entities.SearchBook
+import io.legado.app.data.local.preferences.LocalPreferencesKeys
+import io.legado.app.data.local.preferences.LocalPreferencesRepository
 import io.legado.app.data.repository.SearchRepository
 import io.legado.app.domain.model.BookSearchScope
+import io.legado.app.domain.model.MatchMode
+import io.legado.app.domain.usecase.AddToBookshelfUseCase
 import io.legado.app.domain.usecase.BookSearchControl
 import io.legado.app.domain.usecase.BookSearchRequest
 import io.legado.app.domain.usecase.BookShelfKey
+import io.legado.app.domain.usecase.ExploreBooksUseCase
 import io.legado.app.domain.usecase.ResolveBookShelfStateUseCase
 import io.legado.app.domain.usecase.SearchBooksUseCase
 import io.legado.app.domain.usecase.SearchRunEvent
 import io.legado.app.help.config.AppConfig
 import io.legado.app.ui.config.otherConfig.OtherConfig
-import io.legado.app.ui.main.bookshelf.BookShelfItem
-import io.legado.app.utils.getPrefBoolean
-import io.legado.app.utils.putPrefBoolean
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentSetOf
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import splitties.init.appCtx
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModel(
     private val repository: SearchRepository,
     private val resolveBookShelfStateUseCase: ResolveBookShelfStateUseCase,
     private val searchBooksUseCase: SearchBooksUseCase,
+    private val exploreBooksUseCase: ExploreBooksUseCase,
+    private val addToBookshelfUseCase: AddToBookshelfUseCase,
+    private val localPreferencesRepository: LocalPreferencesRepository,
 ) : ViewModel() {
+
+    val searchLayoutMode = localPreferencesRepository
+        .getPreference(LocalPreferencesKeys.SEARCH_LAYOUT_MODE, 0)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    fun toggleSearchLayout() {
+        viewModelScope.launch {
+            val newMode = if (searchLayoutMode.value == 0) 1 else 0
+            localPreferencesRepository.updatePreference(
+                LocalPreferencesKeys.SEARCH_LAYOUT_MODE, newMode
+            )
+        }
+    }
+
+    private val matchModeFlow = localPreferencesRepository
+        .getPreference(LocalPreferencesKeys.MATCH_MODE, MatchMode.DEFAULT.value)
+        .distinctUntilChanged()
+        .map { MatchMode.of(it) }
 
     private val _uiState = MutableStateFlow(
         SearchUiState(
-            isPrecisionSearch = appCtx.getPrefBoolean(PreferKey.precisionSearch),
             scopeDisplay = SearchScope(AppConfig.searchScope).display,
-            scopeDisplayNames = SearchScope(AppConfig.searchScope).displayNames,
+            scopeDisplayNames = SearchScope(AppConfig.searchScope).displayNames.toImmutableList(),
             isAllScope = SearchScope(AppConfig.searchScope).isAll(),
             isSourceScope = SearchScope(AppConfig.searchScope).isSource(),
         )
@@ -62,6 +88,7 @@ class SearchViewModel(
 
     private var searchJob: Job? = null
     private var currentSearchPage = 1
+    private var wasSearching = false
 
     init {
         syncScopeState()
@@ -70,17 +97,38 @@ class SearchViewModel(
         observeBookshelf()
         observeQueryHistory()
         observeQueryBookshelfHints()
+        observeMatchMode()
+    }
+
+    fun onAddToShelf(book: SearchBook) {
+        viewModelScope.launch {
+            addToBookshelfUseCase.execute(book)
+        }
     }
 
     fun onIntent(intent: SearchIntent) {
         when (intent) {
             is SearchIntent.Initialize -> initialize(intent.key, intent.scopeRaw)
-            is SearchIntent.UpdateQuery -> updateQuery(intent.query, showSuggestions = true)
+            is SearchIntent.UpdateQuery -> updateQuery(intent.query, intent.showSuggestions)
             SearchIntent.SubmitSearch -> submitSearch()
             SearchIntent.LoadMore -> loadMore()
             SearchIntent.StopSearch -> stopSearch()
-            SearchIntent.PauseEngine -> searchControl.pause()
-            SearchIntent.ResumeEngine -> searchControl.resume()
+            SearchIntent.ClearSearchResults -> clearSearchResults()
+            SearchIntent.PauseEngine -> {
+                wasSearching = wasSearching || (searchJob?.isActive == true)
+                searchControl.pause()
+            }
+
+            SearchIntent.ResumeEngine -> {
+                searchControl.resume()
+                if (wasSearching) {
+                    val state = _uiState.value
+                    if (state.committedQuery.isNotBlank() && searchJob?.isActive != true) {
+                        startSearch(state.committedQuery, currentSearchPage)
+                    }
+                    wasSearching = false
+                }
+            }
             is SearchIntent.UseHistoryKeyword -> {
                 updateQuery(intent.keyword, showSuggestions = false)
                 submitSearch(intent.keyword)
@@ -92,6 +140,9 @@ class SearchViewModel(
                         name = intent.book.name,
                         author = intent.book.author,
                         bookUrl = intent.book.bookUrl,
+                        origin = intent.book.origin,
+                        coverPath = intent.book.coverUrl,
+                        sharedCoverKey = intent.sharedCoverKey,
                     )
                 )
             }
@@ -102,6 +153,9 @@ class SearchViewModel(
                         name = intent.book.name,
                         author = intent.book.author,
                         bookUrl = intent.book.bookUrl,
+                        origin = intent.book.origin,
+                        coverPath = intent.book.getDisplayCover(),
+                        sharedCoverKey = null,
                     )
                 )
             }
@@ -125,6 +179,28 @@ class SearchViewModel(
                 _uiState.update { it.copy(showScopeSheet = intent.visible) }
             }
 
+            is SearchIntent.SetSettingsSheetVisible -> {
+                _uiState.update { it.copy(showSettingsSheet = intent.visible) }
+            }
+
+            is SearchIntent.ToggleSourceType -> {
+                _uiState.update { state ->
+                    val current = state.selectedSourceTypes
+                    val next = if (current.contains(intent.type)) {
+                        (current - intent.type).toImmutableSet()
+                    } else {
+                        (current + intent.type).toImmutableSet()
+                    }
+                    state.copy(selectedSourceTypes = next)
+                }
+                restartCommittedSearchIfNeeded()
+            }
+
+            SearchIntent.ClearAllSourceTypes -> {
+                _uiState.update { it.copy(selectedSourceTypes = persistentSetOf()) }
+                restartCommittedSearchIfNeeded()
+            }
+
             SearchIntent.SelectAllScope -> {
                 val oldScope = searchScope.toString()
                 searchScope.update("")
@@ -139,9 +215,12 @@ class SearchViewModel(
                 syncScopeState(restartSearch = true, oldScope = oldScope)
             }
 
-            is SearchIntent.TogglePrecision -> {
-                appCtx.putPrefBoolean(PreferKey.precisionSearch, intent.enabled)
-                _uiState.update { it.copy(isPrecisionSearch = intent.enabled) }
+            is SearchIntent.SetMatchMode -> {
+                viewModelScope.launch {
+                    localPreferencesRepository.updatePreference(
+                        LocalPreferencesKeys.MATCH_MODE, intent.mode.value
+                    )
+                }
                 restartCommittedSearchIfNeeded()
             }
 
@@ -151,6 +230,79 @@ class SearchViewModel(
             }
 
             SearchIntent.OpenSourceManage -> emitEffect(SearchEffect.OpenSourceManage)
+
+            is SearchIntent.ExpandSource -> {
+                val state = _uiState.value
+                if (state.expandedSourceUrl == intent.sourceUrl) {
+                    _uiState.update { it.copy(showExpandedSource = true) }
+                    return
+                }
+                _uiState.update {
+                    it.copy(
+                        expandedSourceUrl = intent.sourceUrl,
+                        expandedSourceName = intent.sourceName,
+                        expandedSourceBooks = persistentListOf(),
+                        expandedSourceLoading = true,
+                        expandedSourceEnd = false,
+                        expandedSourceError = null,
+                        expandedSourcePage = 1,
+                        showExpandedSource = true,
+                        expandedSourceSavedScrollIndex = 0,
+                        expandedSourceSavedScrollOffset = 0,
+                    )
+                }
+                loadExpandedSourcePage(intent.sourceUrl, page = 1)
+            }
+
+            SearchIntent.DismissExpandedSource -> {
+                _uiState.update {
+                    it.copy(showExpandedSource = false)
+                }
+            }
+
+            SearchIntent.LoadMoreExpandedSource -> {
+                val state = _uiState.value
+                val sourceUrl = state.expandedSourceUrl ?: return
+                if (state.expandedSourceLoading || state.expandedSourceEnd) return
+                _uiState.update {
+                    it.copy(
+                        expandedSourceLoading = true,
+                        expandedSourceError = null
+                    )
+                }
+                loadExpandedSourcePage(sourceUrl, page = state.expandedSourcePage)
+            }
+
+            is SearchIntent.OpenExpandedSourceBook -> {
+                emitEffect(
+                    SearchEffect.OpenBookInfo(
+                        name = intent.book.name,
+                        author = intent.book.author,
+                        bookUrl = intent.book.bookUrl,
+                        origin = intent.book.origin,
+                        coverPath = intent.book.coverUrl,
+                        sharedCoverKey = intent.sharedCoverKey,
+                    )
+                )
+            }
+
+            is SearchIntent.SaveScrollState -> {
+                _uiState.update {
+                    it.copy(
+                        savedScrollIndex = intent.index,
+                        savedScrollOffset = intent.offset,
+                    )
+                }
+            }
+
+            is SearchIntent.SaveExpandedSourceScrollState -> {
+                _uiState.update {
+                    it.copy(
+                        expandedSourceSavedScrollIndex = intent.index,
+                        expandedSourceSavedScrollOffset = intent.offset,
+                    )
+                }
+            }
         }
     }
 
@@ -164,6 +316,15 @@ class SearchViewModel(
             searchScope.update(it, postValue = false)
         }
         syncScopeState()
+
+        // When the ViewModel already holds a non-empty committed query,
+        // it means a search session is in progress or completed.
+        // This happens when returning from BookInfo — the LaunchedEffect
+        // re-fires but we must not wipe the existing results.
+        val hasActiveSearch = _uiState.value.committedQuery.isNotEmpty()
+        if (hasActiveSearch) return
+
+        clearSearchResults()
 
         val initKey = key?.trim().orEmpty()
         if (initKey.isNotEmpty()) {
@@ -179,7 +340,7 @@ class SearchViewModel(
             repository.enabledGroups
                 .catch { emit(emptyList()) }
                 .collect { groups ->
-                    _uiState.update { it.copy(enabledGroups = groups) }
+                    _uiState.update { it.copy(enabledGroups = groups.toImmutableList()) }
                 }
         }
     }
@@ -189,7 +350,7 @@ class SearchViewModel(
             repository.enabledSources
                 .catch { emit(emptyList()) }
                 .collect { sources ->
-                    _uiState.update { it.copy(enabledSources = sources) }
+                    _uiState.update { it.copy(enabledSources = sources.toImmutableList()) }
                 }
         }
     }
@@ -201,7 +362,7 @@ class SearchViewModel(
                 .collect { keys ->
                     bookshelfKeys.value = keys
                     _uiState.update { state ->
-                        state.copy(results = state.results.withShelfState(keys))
+                        state.copy(results = state.results.withShelfState(keys).toImmutableList())
                     }
                 }
         }
@@ -215,7 +376,7 @@ class SearchViewModel(
                 .flatMapLatest { repository.searchHistory(it) }
                 .catch { emit(emptyList()) }
                 .collect { history ->
-                    _uiState.update { it.copy(history = history) }
+                    _uiState.update { it.copy(history = history.toImmutableList()) }
                 }
         }
     }
@@ -228,8 +389,16 @@ class SearchViewModel(
                 .flatMapLatest { repository.searchBookshelf(it) }
                 .catch { emit(emptyList()) }
                 .collect { books ->
-                    _uiState.update { it.copy(bookshelfHints = books) }
+                    _uiState.update { it.copy(bookshelfHints = books.toImmutableList()) }
                 }
+        }
+    }
+
+    private fun observeMatchMode() {
+        viewModelScope.launch {
+            matchModeFlow.collect { mode ->
+                _uiState.update { it.copy(matchMode = mode) }
+            }
         }
     }
 
@@ -260,17 +429,32 @@ class SearchViewModel(
 
         updateQuery(keyword, showSuggestions = false)
 
+        // Cancel the old search job BEFORE clearing results to prevent
+        // stale Progress events from re-inserting books into the map.
+        searchJob?.cancel()
+        searchJob = null
+
         currentSearchPage = 1
         searchResultBooks.clear()
         _uiState.update {
             it.copy(
                 committedQuery = keyword,
-                results = emptyList(),
+                results = persistentListOf(),
                 isManualStop = false,
                 hasMore = true,
                 processedSources = 0,
                 totalSources = 0,
                 emptyScopeAction = null,
+                expandedSourceUrl = null,
+                expandedSourceName = null,
+                expandedSourceBooks = persistentListOf(),
+                expandedSourceLoading = false,
+                expandedSourceEnd = false,
+                expandedSourceError = null,
+                expandedSourcePage = 1,
+                showExpandedSource = false,
+                expandedSourceSavedScrollIndex = 0,
+                expandedSourceSavedScrollOffset = 0,
             )
         }
 
@@ -299,6 +483,7 @@ class SearchViewModel(
     private fun startSearch(keyword: String, page: Int) {
         searchJob?.cancel()
         searchControl.resume()
+        wasSearching = true
         searchJob = viewModelScope.launch {
             try {
                 searchBooksUseCase
@@ -307,8 +492,9 @@ class SearchViewModel(
                             keyword = keyword,
                             page = page,
                             scope = BookSearchScope(searchScope.toString()),
-                            precision = _uiState.value.isPrecisionSearch,
+                            matchMode = _uiState.value.matchMode,
                             concurrency = OtherConfig.threadCount,
+                            types = _uiState.value.selectedSourceTypes.takeIf { it.isNotEmpty() },
                         ),
                         searchControl
                     )
@@ -339,7 +525,7 @@ class SearchViewModel(
                     it.copy(
                         results = buildSearchResultItems(
                             shelf = bookshelfKeys.value,
-                        ),
+                        ).toImmutableList(),
                         processedSources = event.processedSources,
                         totalSources = event.totalSources,
                     )
@@ -351,7 +537,7 @@ class SearchViewModel(
                     val emptyAction = if (searchResultBooks.isEmpty() && event.isEmpty && !searchScope.isAll()) {
                         SearchEmptyScopeAction(
                             scopeDisplay = searchScope.display,
-                            wasPrecisionSearch = state.isPrecisionSearch,
+                            wasMatchMode = state.matchMode,
                         )
                     } else {
                         null
@@ -369,10 +555,41 @@ class SearchViewModel(
     private fun stopSearch(manualStop: Boolean = true) {
         searchJob?.cancel()
         searchJob = null
+        wasSearching = false
         _uiState.update {
             it.copy(
                 isSearching = false,
                 isManualStop = manualStop || it.isManualStop,
+            )
+        }
+    }
+
+    private fun clearSearchResults() {
+        stopSearch(manualStop = true)
+        searchResultBooks.clear()
+        queryFlow.value = ""
+        _uiState.update {
+            it.copy(
+                query = "",
+                committedQuery = "",
+                results = persistentListOf(),
+                processedSources = 0,
+                totalSources = 0,
+                isSearching = false,
+                isManualStop = false,
+                hasMore = true,
+                showSuggestions = true,
+                emptyScopeAction = null,
+                expandedSourceUrl = null,
+                expandedSourceName = null,
+                expandedSourceBooks = persistentListOf(),
+                expandedSourceLoading = false,
+                expandedSourceEnd = false,
+                expandedSourceError = null,
+                expandedSourcePage = 1,
+                showExpandedSource = false,
+                expandedSourceSavedScrollIndex = 0,
+                expandedSourceSavedScrollOffset = 0,
             )
         }
     }
@@ -421,9 +638,12 @@ class SearchViewModel(
         val action = _uiState.value.emptyScopeAction ?: return
         _uiState.update { it.copy(emptyScopeAction = null) }
 
-        if (action.wasPrecisionSearch) {
-            appCtx.putPrefBoolean(PreferKey.precisionSearch, false)
-            _uiState.update { it.copy(isPrecisionSearch = false) }
+        if (action.wasMatchMode == MatchMode.EXACT) {
+            viewModelScope.launch {
+                localPreferencesRepository.updatePreference(
+                    LocalPreferencesKeys.MATCH_MODE, MatchMode.DEFAULT.value
+                )
+            }
         } else {
             searchScope.update("")
             syncScopeState()
@@ -447,8 +667,8 @@ class SearchViewModel(
         _uiState.update {
             it.copy(
                 scopeDisplay = searchScope.display,
-                scopeDisplayNames = searchScope.displayNames,
-                selectedScopeSourceUrls = searchScope.sourceUrls.toSet(),
+                scopeDisplayNames = searchScope.displayNames.toImmutableList(),
+                selectedScopeSourceUrls = searchScope.sourceUrls.toImmutableSet(),
                 isAllScope = searchScope.isAll(),
                 isSourceScope = searchScope.isSource(),
             )
@@ -492,6 +712,37 @@ class SearchViewModel(
                     shelf = shelf
                 )
             )
+        }
+    }
+
+    private fun loadExpandedSourcePage(sourceUrl: String, page: Int) {
+        viewModelScope.launch {
+            val keyword = _uiState.value.committedQuery
+            try {
+                val result = exploreBooksUseCase.execute(
+                    sourceUrl = sourceUrl,
+                    moduleUrl = null,
+                    args = null,
+                    page = page,
+                    key = keyword,
+                )
+                val newBooks = result.books
+                _uiState.update {
+                    it.copy(
+                        expandedSourceBooks = (it.expandedSourceBooks + newBooks).toImmutableList(),
+                        expandedSourceLoading = false,
+                        expandedSourceEnd = newBooks.isEmpty(),
+                        expandedSourcePage = page + 1,
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        expandedSourceLoading = false,
+                        expandedSourceError = e.message ?: "Unknown error",
+                    )
+                }
+            }
         }
     }
 

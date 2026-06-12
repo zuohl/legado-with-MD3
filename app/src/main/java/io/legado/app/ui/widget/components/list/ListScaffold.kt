@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -16,7 +17,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingToolbarDefaults.ScreenOffset
-import androidx.compose.material3.Icon
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.animateFloatingActionButton
@@ -54,6 +55,7 @@ fun <T> ListScaffold(
     topBarActions: @Composable RowScope.() -> Unit = {},
     bottomContent: @Composable (ColumnScope.(GlassTopAppBarScrollBehavior) -> Unit)? = null,
     dropDownMenuContent: @Composable (ColumnScope.(dismiss: () -> Unit) -> Unit)? = null,
+    onClearSelection: (() -> Unit)? = null,
     selectionActions: SelectionActions? = null,
     onAddClick: (() -> Unit)? = null,
     floatingActionButton: @Composable () -> Unit = {
@@ -64,13 +66,13 @@ fun <T> ListScaffold(
                     visible = state.selectedIds.isEmpty(),
                     alignment = Alignment.BottomEnd,
                 ),
-                tooltipText = "添加"
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add")
-            }
+                tooltipText = "添加",
+                icon = Icons.Default.Add
+            )
         }
     },
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
+    contentWindowInsets: WindowInsets = ScaffoldDefaults.contentWindowInsets,
     content: @Composable (PaddingValues) -> Unit
 ) {
     val scrollBehavior = GlassTopAppBarDefaults.defaultScrollBehavior()
@@ -98,13 +100,14 @@ fun <T> ListScaffold(
                 onSearchSubmit = onSearchSubmit,
                 searchTrailingIcon = searchTrailingIcon,
                 searchPlaceholder = searchPlaceholder,
-                onClearSelection = { selectionActions?.onClearSelection?.invoke() },
+                onClearSelection = { onClearSelection?.invoke() ?: selectionActions?.onClearSelection?.invoke() },
                 topBarActions = topBarActions,
                 dropDownMenuContent = dropDownMenuContent,
                 bottomContent = bottomContent
             )
         },
-        floatingActionButton = floatingActionButton
+        floatingActionButton = floatingActionButton,
+        contentWindowInsets = contentWindowInsets
     ) { paddingValues ->
         Box(
             modifier = Modifier.fillMaxSize()

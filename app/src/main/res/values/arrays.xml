@@ -12,6 +12,20 @@
 		<item>File</item>
 	</string-array>
 
+	<string-array name="layout_type">
+		<item>List</item>
+		<item>Single Column</item>
+		<item>Two Columns</item>
+		<item>Waterfall</item>
+		<item>Three Columns</item>
+	</string-array>
+
+	<string-array name="rss_type">
+		<item>Web Page</item>
+		<item>Image</item>
+		<item>Video</item>
+	</string-array>
+
 	<string-array name="group_style">
 		<item>Tab</item>
 		<item>Hide Tab</item>
@@ -89,9 +103,6 @@
 	<string-array name="read_slider_mode">
 		<item>Always</item>
 		<item>Disable</item>
-		<item>Left button</item>
-		<item>Right button</item>
-		<item>Only slider</item>
 	</string-array>
 
 	<string-array name="title_bar_mode">
@@ -113,6 +124,7 @@
 		<item>@string/screen_landscape</item>
 		<item>@string/screen_sensor</item>
 		<item>@string/screen_portrait_reversed</item>
+		<item>@string/screen_landscape_reversed</item>
 	</string-array>
 
     <string-array name="click_image_way_title">
@@ -133,6 +145,17 @@
 	<string-array name="progress_bar_behavior_title">
 		<item>@string/adjust_chapter_page</item>
 		<item>@string/adjust_chapter_index</item>
+	</string-array>
+
+	<string-array name="brightness_bar_mode_title">
+		<item>@string/brightness_bar_off</item>
+		<item>@string/brightness_bar_horizontal</item>
+		<item>@string/brightness_bar_vertical</item>
+	</string-array>
+
+	<string-array name="brightness_bar_position_title">
+		<item>@string/brightness_bar_left</item>
+		<item>@string/brightness_bar_right</item>
 	</string-array>
 
 	<string-array name="icon_names" tools:ignore="Typos">
@@ -235,6 +258,7 @@
 	</string-array>
 
 	<string-array name="default_home_page">
+		<item>@string/home</item>
 		<item>@string/bookshelf</item>
 		<item>@string/discovery</item>
 		<item>@string/rss</item>
@@ -250,6 +274,7 @@
 	</string-array>
 
 	<string-array name="default_home_page_value">
+		<item>home</item>
 		<item>bookshelf</item>
 		<item>explore</item>
 		<item>rss</item>
@@ -308,6 +333,12 @@
 		<item>Default</item>
 		<item>High</item>
 		<item>Maximum</item>
+	</string-array>
+
+	<string-array name="backup_sync_mode">
+		<item>@string/backup_to_local_and_network</item>
+		<item>@string/backup_to_local</item>
+		<item>@string/backup_to_network</item>
 	</string-array>
 
 	<string name="all_version">All Version</string>

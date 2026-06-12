@@ -83,7 +83,21 @@ interface BookSourceDao {
     fun flowDisabled(): Flow<List<BookSourcePart>>
 
     @Query(
-        """select * from book_sources_part 
+        """select * from book_sources
+        where enabled = 1 and enabledExplore = 1 and homepageModules is not null
+        order by customOrder asc"""
+    )
+    fun flowHomepageModules(): Flow<List<BookSource>>
+
+    @Query(
+        """select * from book_sources
+        where enabled = 1 and enabledExplore = 1
+        order by customOrder asc"""
+    )
+    fun flowExploreSources(): Flow<List<BookSource>>
+
+    @Query(
+        """select * from book_sources_part
         where enabledExplore = 1 and hasExploreUrl = 1 order by customOrder asc"""
     )
     fun flowExplore(): Flow<List<BookSourcePart>>
@@ -171,6 +185,16 @@ interface BookSourceDao {
         order by customOrder asc"""
     )
     fun getEnabledPartByGroup(group: String): List<BookSourcePart>
+
+    @Query(
+        """select * from book_sources_part 
+        where bookSourceGroup = :group
+        or bookSourceGroup like :group || ',%' 
+        or bookSourceGroup like  '%,' || :group
+        or bookSourceGroup like  '%,' || :group || ',%'
+        order by customOrder asc"""
+    )
+    fun getPartByGroup(group: String): List<BookSourcePart>
 
     @Query(
         """select * from book_sources 

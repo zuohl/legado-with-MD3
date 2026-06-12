@@ -1,9 +1,18 @@
 package io.legado.app.ui.config.themeConfig
 
+import android.os.Handler
+import android.os.Looper
+import androidx.appcompat.app.AppCompatDelegate
 import io.legado.app.constant.EventBus
 import io.legado.app.constant.PreferKey
 import io.legado.app.ui.config.prefDelegate
+import io.legado.app.utils.GSON
 import io.legado.app.utils.postEvent
+
+data class TagColorPair(
+    val textColor: Int = 0,
+    val bgColor: Int = 0
+)
 
 object ThemeConfig {
 
@@ -16,6 +25,16 @@ object ThemeConfig {
     var enableBlur by prefDelegate(PreferKey.enableBlur, false)
 
     var enableProgressiveBlur by prefDelegate(PreferKey.enableProgressiveBlur, false)
+
+    var topBarBlurRadius by prefDelegate(PreferKey.topBarBlurRadius, 24)
+
+    var bottomBarBlurRadius by prefDelegate(PreferKey.bottomBarBlurRadius, 8)
+
+    var topBarBlurAlpha by prefDelegate(PreferKey.topBarBlurAlpha, 73)
+
+    var bottomBarBlurAlpha by prefDelegate(PreferKey.bottomBarBlurAlpha, 40)
+
+    var bottomBarLensRadius by prefDelegate(PreferKey.bottomBarLensRadius, 24f)
 
     var useFlexibleTopAppBar by prefDelegate(PreferKey.useFlexibleTopAppBar, true)
 
@@ -32,7 +51,17 @@ object ThemeConfig {
 
     var appTheme by prefDelegate(PreferKey.appTheme, "0")
 
-    var themeMode by prefDelegate(PreferKey.themeMode, "0")
+    var themeMode by prefDelegate(PreferKey.themeMode, "0") {
+        Handler(Looper.getMainLooper()).post { initNightMode() }
+    }
+
+    fun initNightMode() {
+        when (themeMode) {
+            "1" -> AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
+            "2" -> AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
+            else -> AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
+        }
+    }
 
     var isPureBlack by prefDelegate(PreferKey.pureBlack, false)
 
@@ -56,9 +85,34 @@ object ThemeConfig {
         postEvent(EventBus.RECREATE, "")
     }
 
-    var cPrimary by prefDelegate(PreferKey.cPrimary, 0) {
+    var appFontPath by prefDelegate<String?>(PreferKey.appFontPath, null) {
         postEvent(EventBus.RECREATE, "")
     }
+
+    var cPrimary by prefDelegate(PreferKey.cPrimary, 0)
+
+    var enableDeepPersonalization by prefDelegate(PreferKey.enableDeepPersonalization, false)
+
+    var themeColor by prefDelegate(PreferKey.themeColor, 0)
+
+    var secondaryThemeColor by prefDelegate(PreferKey.secondaryThemeColor, 0)
+
+    var primaryTextColor by prefDelegate(PreferKey.primaryTextColor, 0)
+
+    var secondaryTextColor by prefDelegate(PreferKey.secondaryTextColor, 0)
+
+    var themeBackgroundColor by prefDelegate(PreferKey.themeBackgroundColor, 0)
+
+    var labelContainerColor by prefDelegate(PreferKey.labelContainerColor, 0)
+
+    var enableItemDivider by prefDelegate(PreferKey.enableItemDivider, false)
+
+    var itemDividerWidth by prefDelegate(PreferKey.itemDividerWidth, 1f)
+
+    var itemDividerLength by prefDelegate(PreferKey.itemDividerLength, 80f)
+    var itemDividerColor by prefDelegate(PreferKey.itemDividerColor, 0)
+
+    var bookInfoInputColor by prefDelegate(PreferKey.bookInfoInputColor, 0)
 
     var cNPrimary by prefDelegate(PreferKey.cNPrimary, 0) {
         postEvent(EventBus.RECREATE, "")
@@ -70,7 +124,27 @@ object ThemeConfig {
 
     var launcherIcon by prefDelegate(PreferKey.launcherIcon, "ic_launcher")
 
+    var enableCustomTagColors by prefDelegate(PreferKey.enableCustomTagColors, false)
+
+    var customTagColorsJson by prefDelegate<String?>(PreferKey.customTagColors, null)
+
+    fun getCustomTagColors(): List<TagColorPair> {
+        return try {
+            val json = customTagColorsJson
+            if (json.isNullOrBlank()) emptyList()
+            else GSON.fromJson(json, Array<TagColorPair>::class.java).toList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveCustomTagColors(colors: List<TagColorPair>) {
+        customTagColorsJson = GSON.toJson(colors)
+    }
+
     var showDiscovery by prefDelegate(PreferKey.showDiscovery, true)
+
+    var showHome by prefDelegate(PreferKey.showHome, true)
 
     var showRss by prefDelegate(PreferKey.showRss, true)
 
@@ -92,6 +166,41 @@ object ThemeConfig {
     var labelVisibilityMode by prefDelegate(PreferKey.labelVisibilityMode, "auto")
 
     var defaultHomePage by prefDelegate(PreferKey.defaultHomePage, "bookshelf")
+
+    var navExtended by prefDelegate("navExtended", false)
+
+    var webServiceAutoStart by prefDelegate(PreferKey.webServiceAutoStart, false)
+
+    var autoRefreshBook by prefDelegate(PreferKey.autoRefresh, false)
+
+    var autoCheckNewBackup by prefDelegate(PreferKey.autoCheckNewBackup, true)
+
+    var navIconHome by prefDelegate(PreferKey.navIconHome, "")
+
+    var navIconBookshelf by prefDelegate(PreferKey.navIconBookshelf, "")
+
+    var navIconExplore by prefDelegate(PreferKey.navIconExplore, "")
+
+    var navIconRss by prefDelegate(PreferKey.navIconRss, "")
+
+    var navIconMy by prefDelegate(PreferKey.navIconMy, "")
+
+    // Eye Protection
+    var eyeProtectionEnabled by prefDelegate(PreferKey.eyeProtectionEnabled, false) {
+        postEvent(PreferKey.eyeProtectionEnabled, it)
+    }
+    var colorTemperature by prefDelegate(PreferKey.colorTemperature, 50) {
+        postEvent(PreferKey.colorTemperature, it)
+    }
+    var eyeProtectionSchedule by prefDelegate(PreferKey.eyeProtectionSchedule, false) {
+        postEvent(PreferKey.eyeProtectionSchedule, it)
+    }
+    var eyeProtectionStartTime by prefDelegate(PreferKey.eyeProtectionStartTime, "22:00") {
+        postEvent(PreferKey.eyeProtectionStartTime, it)
+    }
+    var eyeProtectionEndTime by prefDelegate(PreferKey.eyeProtectionEndTime, "07:00") {
+        postEvent(PreferKey.eyeProtectionEndTime, it)
+    }
 
     fun hasImageBg(isDark: Boolean): Boolean =
         !(if (isDark) bgImageDark else bgImageLight).isNullOrBlank()

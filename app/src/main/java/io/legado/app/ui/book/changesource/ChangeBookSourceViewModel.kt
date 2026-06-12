@@ -97,6 +97,8 @@ open class ChangeBookSourceViewModel(application: Application) : BaseViewModel(a
             .thenBy { it.originOrder }
     }
     private var task: Job? = null
+    private var isPaused = false
+    private var wasSearching = false
     val bookMap = ConcurrentHashMap<String, Book>()
     val searchDataFlow = callbackFlow {
 
@@ -119,13 +121,14 @@ open class ChangeBookSourceViewModel(application: Application) : BaseViewModel(a
 
         }
 
-        getDbSearchBooks().let {
-            searchBooks.clear()
-            searchBooks.addAll(it)
-            trySend(arrayOf(searchBooks))
-        }
-
         if (searchBooks.isEmpty()) {
+            getDbSearchBooks().let {
+                searchBooks.addAll(it)
+            }
+        }
+        trySend(arrayOf(searchBooks))
+
+        if (searchBooks.isEmpty() && !_isSearching.value) {
             startSearch()
         }
 
@@ -207,18 +210,7 @@ open class ChangeBookSourceViewModel(application: Application) : BaseViewModel(a
             bookMap.clear()
             tocMapChapterCount = 0
             _changeSourceProgress.value = 0 to ""
-            val searchGroup = AppConfig.searchGroup
-            if (searchGroup.isBlank()) {
-                bookSourceParts.addAll(appDb.bookSourceDao.allEnabledPart)
-            } else {
-                val sources = appDb.bookSourceDao.getEnabledPartByGroup(searchGroup)
-                if (sources.isEmpty()) {
-                    AppConfig.searchGroup = ""
-                    bookSourceParts.addAll(appDb.bookSourceDao.allEnabledPart)
-                } else {
-                    bookSourceParts.addAll(sources)
-                }
-            }
+            bookSourceParts.addAll(io.legado.app.ui.book.search.SearchScope(ChangeSourceConfig.searchScope).getBookSourceParts())
             initSearchPool()
             search()
         }
@@ -250,6 +242,9 @@ open class ChangeBookSourceViewModel(application: Application) : BaseViewModel(a
                 searchStateData.postValue(true)
                 _isSearching.value = true
             }.mapParallel(threadCount) {
+                while (isPaused) {
+                    kotlinx.coroutines.delay(100)
+                }
                 try {
                     withTimeout(60000L) {
                         search(it)
@@ -280,7 +275,7 @@ open class ChangeBookSourceViewModel(application: Application) : BaseViewModel(a
         val loadWordCount = AppConfig.changeSourceLoadWordCount
         val resultBooks = WebBook.searchBookAwait(
             source, name,
-            filter = { fName, fAuthor ->
+            filter = { fName, fAuthor, _ ->
                 fName == name && (!checkAuthor || fAuthor.contains(author))
             })
         resultBooks.forEach { searchBook ->
@@ -415,25 +410,24 @@ open class ChangeBookSourceViewModel(application: Application) : BaseViewModel(a
     }
 
     private fun getDbSearchBooks(): List<SearchBook> {
+        val searchScope = io.legado.app.ui.book.search.SearchScope(
+            ChangeSourceConfig.searchScope
+        )
+        val group = when {
+            searchScope.isAll() || searchScope.isSource() -> ""
+            else -> searchScope.displayNames.firstOrNull() ?: ""
+        }
         return if (screenKey.isEmpty()) {
             if (AppConfig.changeSourceCheckAuthor) {
-                appDb.searchBookDao.changeSourceByGroup(
-                    name, author, AppConfig.searchGroup
-                )
+                appDb.searchBookDao.changeSourceByGroup(name, author, group)
             } else {
-                appDb.searchBookDao.changeSourceByGroup(
-                    name, "", AppConfig.searchGroup
-                )
+                appDb.searchBookDao.changeSourceByGroup(name, "", group)
             }
         } else {
             if (AppConfig.changeSourceCheckAuthor) {
-                appDb.searchBookDao.changeSourceSearch(
-                    name, author, screenKey, AppConfig.searchGroup
-                )
+                appDb.searchBookDao.changeSourceSearch(name, author, screenKey, group)
             } else {
-                appDb.searchBookDao.changeSourceSearch(
-                    name, "", screenKey, AppConfig.searchGroup
-                )
+                appDb.searchBookDao.changeSourceSearch(name, "", screenKey, group)
             }
         }
     }
@@ -465,6 +459,17 @@ open class ChangeBookSourceViewModel(application: Application) : BaseViewModel(a
         searchPool?.close()
         searchStateData.postValue(false)
         _isSearching.value = false
+        wasSearching = false
+    }
+
+    fun pause() {
+        isPaused = true
+        wasSearching = _isSearching.value
+    }
+
+    fun resume() {
+        isPaused = false
+        wasSearching = false
     }
 
     fun getToc(

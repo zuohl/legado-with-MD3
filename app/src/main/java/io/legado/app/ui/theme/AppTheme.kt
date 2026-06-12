@@ -1,23 +1,13 @@
 package io.legado.app.ui.theme
 
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.MaterialExpressiveTheme
-import androidx.compose.material3.MotionScheme
-import androidx.compose.material3.Shapes
-import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.colorResource
 import io.legado.app.ui.config.themeConfig.ThemeConfig
-import io.legado.app.ui.theme.LegadoTheme
-import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.theme.ThemeController
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -26,75 +16,90 @@ fun AppTheme(
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
+    
+    // 1. 获取基础配置
     val appThemeMode = ThemeResolver.resolveThemeMode(ThemeConfig.appTheme)
     val themeModeValue = ThemeConfig.themeMode
+    val effectiveDarkTheme = when (themeModeValue) {
+        "1" -> false
+        "2" -> true
+        else -> darkTheme
+    }
     val isPureBlack = ThemeConfig.isPureBlack
     val paletteStyleValue = ThemeConfig.paletteStyle
     val materialVersion = ThemeConfig.materialVersion
     val composeEngine = ThemeConfig.composeEngine
-    val useMiuixMonet = ThemeConfig.useMiuixMonet
     val customPrimary = ThemeConfig.cPrimary
     val customNightPrimary = ThemeConfig.cNPrimary
-    val colorSchemeMode = ThemeResolver.resolveColorSchemeMode(themeModeValue)
-    val miuixColorSchemeMode = remember(themeModeValue, useMiuixMonet) {
-        ThemeResolver.resolveMiuixColorSchemeMode(themeModeValue, useMiuixMonet)
-    }
-    val paletteStyle =
-        remember(paletteStyleValue) { ThemeResolver.resolvePaletteStyle(paletteStyleValue) }
+    val appFontPath = ThemeConfig.appFontPath
 
-    val colorScheme =
-        remember(
-            context,
-            appThemeMode,
-            darkTheme,
-            isPureBlack,
-            customPrimary,
-            customNightPrimary,
-            paletteStyleValue,
-            materialVersion
-        ) {
-            val customSeedColor = if (darkTheme) customNightPrimary else customPrimary
+    // 2. 深度个性化配置
+    val enableDeepPersonalization = ThemeConfig.enableDeepPersonalization
+    val themeColor = ThemeConfig.themeColor
+    val secondaryThemeColor = ThemeConfig.secondaryThemeColor
+    val primaryTextColor = ThemeConfig.primaryTextColor
+    val secondaryTextColor = ThemeConfig.secondaryTextColor
+    val themeBackgroundColor = ThemeConfig.themeBackgroundColor
+    val customLabelContainerColor = ThemeConfig.labelContainerColor
+
+    // 3. 加载自定义字体
+    val customFontFamily = rememberCustomFont(appFontPath)
+
+    // 4. 解析配色方案 (Material 3 ColorScheme)
+    val colorScheme = remember(
+        context, appThemeMode, effectiveDarkTheme, isPureBlack, customPrimary, customNightPrimary,
+        enableDeepPersonalization, themeColor, secondaryThemeColor, primaryTextColor,
+        secondaryTextColor, themeBackgroundColor, customLabelContainerColor,
+        paletteStyleValue, materialVersion
+    ) {
+        if (enableDeepPersonalization &&
+            (themeColor != 0 || secondaryThemeColor != 0 || primaryTextColor != 0 ||
+             secondaryTextColor != 0 || themeBackgroundColor != 0 || customLabelContainerColor != 0)) {
+            val userPalette = UserColorPalette(
+                primaryColor = if (themeColor != 0) Color(themeColor) else Color(0xFF6750A4),
+                secondaryColor = if (secondaryThemeColor != 0) Color(secondaryThemeColor) else Color(0xFF625B71),
+                backgroundColor = if (themeBackgroundColor != 0) Color(themeBackgroundColor) else Color(0xFFFEF7FF),
+                primaryFontColor = if (primaryTextColor != 0) Color(primaryTextColor) else Color(0xFF1C1B1F),
+                secondaryFontColor = if (secondaryTextColor != 0) Color(secondaryTextColor) else Color(0xFF49454F),
+                labelContainerColor = if (customLabelContainerColor != 0) Color(customLabelContainerColor) else Color(0xFFF7F2FA)
+            )
+            generateColorScheme(userPalette, effectiveDarkTheme)
+        } else {
+            val customSeedColor = if (effectiveDarkTheme) customNightPrimary else customPrimary
             ThemeEngine.getColorScheme(
                 context = context,
                 mode = appThemeMode,
-                darkTheme = darkTheme,
+                darkTheme = effectiveDarkTheme,
                 isAmoled = isPureBlack,
                 paletteStyle = paletteStyleValue,
                 materialVersion = materialVersion,
                 customSeedColor = customSeedColor
             )
         }
+    }
 
-    val customSeedColor = remember(
-        darkTheme,
-        customPrimary,
-        customNightPrimary,
-        colorScheme.primary
+    // 5. 确定种子颜色
+    val themeSeedColor = remember(
+        appThemeMode, colorScheme.primary, effectiveDarkTheme, customPrimary, customNightPrimary
     ) {
-        val seed = if (darkTheme) customNightPrimary else customPrimary
-        if (seed != 0) Color(seed) else colorScheme.primary
-    }
-    val themeSeedColor = remember(appThemeMode, customSeedColor, colorScheme.primary) {
-        if (appThemeMode == AppThemeMode.Custom) customSeedColor else colorScheme.primary
-    }
-    val miuixPaletteStyle = remember(paletteStyleValue) {
-        ThemeResolver.resolveMiuixPaletteStyle(paletteStyleValue)
-    }
-    val miuixColorSpec = remember(materialVersion, paletteStyleValue) {
-        ThemeResolver.resolveMiuixColorSpec(materialVersion, paletteStyleValue)
+        if (appThemeMode == AppThemeMode.Custom) {
+            val seed = if (effectiveDarkTheme) customNightPrimary else customPrimary
+            if (seed != 0) Color(seed) else colorScheme.primary
+        } else {
+            colorScheme.primary
+        }
     }
 
+    // 6. 构造 Legado 主题模式数据
     val themeColors = remember(
-        colorScheme,
-        darkTheme,
-        themeSeedColor,
-        paletteStyle,
-        colorSchemeMode,
-        composeEngine
+        colorScheme, effectiveDarkTheme, themeSeedColor, paletteStyleValue, composeEngine,
+        appThemeMode, themeModeValue
     ) {
+        val paletteStyle = ThemeResolver.resolvePaletteStyle(paletteStyleValue)
+        val colorSchemeMode = ThemeResolver.resolveColorSchemeMode(themeModeValue)
         LegadoThemeMode(
             colorScheme = colorScheme,
-            isDark = darkTheme,
+            isDark = effectiveDarkTheme,
             seedColor = themeSeedColor,
             paletteStyle = paletteStyle,
             themeMode = colorSchemeMode,
@@ -103,145 +108,22 @@ fun AppTheme(
         )
     }
 
+    // 7. 提供主题数据并根据引擎渲染
     CompositionLocalProvider(
         LocalLegadoThemeColors provides themeColors
     ) {
         if (ThemeResolver.isMiuixEngine(themeColors.composeEngine)) {
-            val keyColor = if (useMiuixMonet &&
-                themeColors.useDynamicColor &&
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-            ) {
-                colorResource(id = android.R.color.system_accent1_500)
-            } else {
-                themeSeedColor
-            }
-
-            val controller = remember(
-                miuixColorSchemeMode,
-                useMiuixMonet,
-                keyColor,
-                miuixPaletteStyle,
-                miuixColorSpec,
-                darkTheme
-            ) {
-                if (useMiuixMonet) {
-                    ThemeController(
-                        colorSchemeMode = miuixColorSchemeMode,
-                        keyColor = keyColor,
-                        paletteStyle = miuixPaletteStyle,
-                        colorSpec = miuixColorSpec,
-                        isDark = darkTheme
-                    )
-                } else {
-                    ThemeController(
-                        colorSchemeMode = miuixColorSchemeMode,
-                        isDark = darkTheme
-                    )
-                }
-            }
-
-            MiuixTheme(controller = controller) {
-                val miuixStyles = MiuixTheme.textStyles
-                val legadoTypography = remember(miuixStyles) {
-                    miuixStylesToM3Typography(miuixStyles).toLegadoTypography()
-                }
-
-                val miuixColorScheme = MiuixTheme.colorScheme
-
-                val mappedColorScheme = remember(miuixColorScheme) {
-                    LegadoColorScheme(
-                        primary = miuixColorScheme.primary,
-                        onPrimary = miuixColorScheme.onPrimary,
-                        primaryContainer = miuixColorScheme.primaryContainer,
-                        onPrimaryContainer = miuixColorScheme.onPrimaryContainer,
-                        inversePrimary = miuixColorScheme.primaryVariant,
-
-                        secondary = miuixColorScheme.secondary,
-                        onSecondary = miuixColorScheme.onSecondary,
-                        secondaryContainer = miuixColorScheme.secondaryContainer,
-                        onSecondaryContainer = miuixColorScheme.onSecondaryContainer,
-
-                        tertiary = miuixColorScheme.primary,
-                        onTertiary = miuixColorScheme.onPrimary,
-                        tertiaryContainer = miuixColorScheme.primaryContainer,
-                        onTertiaryContainer = miuixColorScheme.primaryVariant,
-
-                        background = miuixColorScheme.background,
-                        onBackground = miuixColorScheme.onBackground,
-
-                        surface = miuixColorScheme.surface,
-                        onSurface = miuixColorScheme.onSurface,
-                        surfaceVariant = miuixColorScheme.surfaceVariant,
-                        onSurfaceVariant = miuixColorScheme.onSurfaceSecondary,
-                        surfaceTint = miuixColorScheme.primary,
-                        inverseSurface = miuixColorScheme.onSurface,
-                        inverseOnSurface = miuixColorScheme.surface,
-
-                        error = miuixColorScheme.error,
-                        onError = miuixColorScheme.onError,
-                        errorContainer = miuixColorScheme.errorContainer,
-                        onErrorContainer = miuixColorScheme.onErrorContainer,
-
-                        outline = miuixColorScheme.outline,
-                        outlineVariant = miuixColorScheme.dividerLine,
-                        scrim = miuixColorScheme.windowDimming,
-
-                        surfaceBright = miuixColorScheme.surface,
-                        surfaceDim = miuixColorScheme.background,
-                        surfaceContainer = miuixColorScheme.surfaceContainer,
-                        surfaceContainerHigh = miuixColorScheme.surfaceContainerHigh,
-                        surfaceContainerHighest = miuixColorScheme.surfaceContainerHighest,
-                        surfaceContainerLow = miuixColorScheme.secondaryContainer.copy(alpha = 0.32f)
-                            .compositeOver(miuixColorScheme.surface),
-                        surfaceContainerLowest = miuixColorScheme.background,
-
-                        primaryFixed = miuixColorScheme.primaryContainer,
-                        primaryFixedDim = miuixColorScheme.primary,
-                        onPrimaryFixed = miuixColorScheme.onPrimaryContainer,
-                        onPrimaryFixedVariant = miuixColorScheme.onPrimary,
-                        secondaryFixed = miuixColorScheme.secondaryContainer,
-                        secondaryFixedDim = miuixColorScheme.secondary,
-                        onSecondaryFixed = miuixColorScheme.onSecondaryContainer,
-                        onSecondaryFixedVariant = miuixColorScheme.onSecondary,
-                        tertiaryFixed = miuixColorScheme.tertiaryContainer,
-                        tertiaryFixedDim = miuixColorScheme.tertiaryContainerVariant,
-                        onTertiaryFixed = miuixColorScheme.onTertiaryContainer,
-                        onTertiaryFixedVariant = miuixColorScheme.onTertiaryContainer,
-
-                        cardContainer = miuixColorScheme.primaryContainer.copy(alpha = 0.32f)
-                            .compositeOver(miuixColorScheme.surfaceContainer),
-                        onCardContainer = miuixColorScheme.primary,
-                        onSheetContent = miuixColorScheme.surface.copy(alpha = 0.5f),
-                    )
-                }
-
-                CompositionLocalProvider(
-                    LocalLegadoTypography provides legadoTypography,
-                    LocalLegadoColorScheme provides mappedColorScheme
-                ) {
-                    AppBackground(darkTheme = darkTheme) { content() }
-                }
-            }
+            MiuixThemeWrapper(
+                themeColors = themeColors,
+                customFontFamily = customFontFamily,
+                content = content
+            )
         } else {
-            val materialTypography = remember { Typography() }
-            MaterialExpressiveTheme(
-                colorScheme = colorScheme,
-                typography = materialTypography,
-                motionScheme = MotionScheme.expressive(),
-                shapes = Shapes()
-            ) {
-                val legadoTypography = remember(materialTypography) {
-                    materialTypography.toLegadoTypography()
-                }
-                val semanticColors = remember(colorScheme) { colorScheme.toLegadoColorScheme() }
-
-                CompositionLocalProvider(
-                    LocalLegadoTypography provides legadoTypography,
-                    LocalLegadoColorScheme provides semanticColors
-                ) {
-                    AppBackground(darkTheme = darkTheme) { content() }
-                }
-            }
+            MaterialThemeWrapper(
+                themeColors = themeColors,
+                customFontFamily = customFontFamily,
+                content = content
+            )
         }
     }
 }

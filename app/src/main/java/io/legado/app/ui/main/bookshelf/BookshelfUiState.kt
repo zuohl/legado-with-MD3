@@ -1,5 +1,6 @@
 package io.legado.app.ui.main.bookshelf
 
+import androidx.compose.runtime.Stable
 import io.legado.app.data.entities.BookGroup
 import io.legado.app.ui.widget.components.list.ListUiState
 import kotlinx.collections.immutable.ImmutableList
@@ -9,8 +10,10 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
 
+@Stable
 data class BookshelfGroupSelectorState(
-    val groups: ImmutableList<BookGroup> = persistentListOf(),
+    val isInitialLoading: Boolean = true,
+    val groups: ImmutableList<BookGroupUi> = persistentListOf(),
     val selectedGroupIndex: Int = 0,
     val selectedGroupId: Long = BookGroup.IdAll
 )
@@ -24,18 +27,21 @@ sealed interface BookshelfOverlay {
     data object LogSheet : BookshelfOverlay
     data object GroupMenu : BookshelfOverlay
     data object GroupSelectSheet : BookshelfOverlay
+    data class GroupEditSheet(val groupId: Long) : BookshelfOverlay
     data object BatchDownloadConfirmDialog : BookshelfOverlay
 }
 
+@Stable
 data class BookshelfUiState(
-    override val items: ImmutableList<BookShelfItem> = persistentListOf(),
+    override val items: ImmutableList<BookUiItem> = persistentListOf(),
     override val selectedIds: ImmutableSet<Any> = persistentSetOf(),
     override val searchKey: String = "",
     override val isSearch: Boolean = false,
     override val isLoading: Boolean = false,
-    val groups: ImmutableList<BookGroup> = persistentListOf(),
-    val allGroups: ImmutableList<BookGroup> = persistentListOf(),
-    val groupPreviews: ImmutableMap<Long, ImmutableList<BookShelfItem>> = persistentMapOf(),
+    val isInitialLoading: Boolean = true,
+    val groups: ImmutableList<BookGroupUi> = persistentListOf(),
+    val allGroups: ImmutableList<BookGroupUi> = persistentListOf(),
+    val groupPreviews: ImmutableMap<Long, ImmutableList<BookUiItem>> = persistentMapOf(),
     val groupBookCounts: ImmutableMap<Long, Int> = persistentMapOf(),
     val currentGroupBookCount: Int = 0,
     val allBooksCount: Int = 0,
@@ -55,6 +61,7 @@ data class BookshelfUiState(
     val title: String = "",
     val subtitle: String? = null,
     val currentGroupName: String? = null,
-    val draggingBooks: ImmutableList<BookShelfItem>? = null,
-    val pendingSavedBooks: ImmutableList<BookShelfItem>? = null
-) : ListUiState<BookShelfItem>
+    val draggingBooks: ImmutableList<BookUiItem>? = null,
+    val pendingSavedBooks: ImmutableList<BookUiItem>? = null,
+    val allGroupBooks: ImmutableMap<Long, ImmutableList<BookUiItem>> = persistentMapOf()
+) : ListUiState<BookUiItem>

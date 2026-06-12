@@ -34,9 +34,9 @@ import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.widget.components.AppTextField
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
 import io.legado.app.ui.widget.components.button.ConfirmDismissButtonsRow
-import io.legado.app.ui.widget.components.button.MediumIconButton
+import io.legado.app.ui.widget.components.button.series.MediumPlainButton
 import io.legado.app.ui.widget.components.card.GlassCard
-import io.legado.app.ui.widget.components.cover.CoilBookCover
+import io.legado.app.ui.widget.components.image.cover.CoilBookCover
 import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
 import io.legado.app.ui.widget.components.settingItem.CompactDropdownSettingItem
 import io.legado.app.ui.widget.components.settingItem.CompactSwitchSettingItem
@@ -103,12 +103,15 @@ fun GroupEditContent(
     val context = LocalContext.current
     var groupName by remember(group) { mutableStateOf(group?.groupName ?: "") }
     var enableRefresh by remember(group) { mutableStateOf(group?.enableRefresh ?: true) }
+    var isPrivate by remember(group) { mutableStateOf(group?.isPrivate ?: false) }
+    var showDisablePrivateDialog by remember(group) { mutableStateOf(false) }
     var selectedSortIndex by remember(group) { mutableIntStateOf(group?.bookSort ?: -1) }
 
     val sortOptions = stringArrayResource(R.array.book_sort)
     val sortEntryValues = remember(sortOptions) {
         Array(sortOptions.size) { (it - 1).toString() }
     }
+    val canSetPrivate = group == null || group.groupId > 0
 
     val selectImage = rememberLauncherForActivityResult(SelectImageContract()) { result ->
         result.uri?.let { uri ->
@@ -190,6 +193,23 @@ fun GroupEditContent(
             onCheckedChange = { enableRefresh = it }
         )
 
+        if (canSetPrivate) {
+            Spacer(modifier = Modifier.height(8.dp))
+
+            CompactSwitchSettingItem(
+                title = stringResource(R.string.private_group),
+                description = stringResource(R.string.private_group_desc),
+                checked = isPrivate,
+                onCheckedChange = { checked ->
+                    if (!checked && group?.isPrivate == true) {
+                        showDisablePrivateDialog = true
+                    } else {
+                        isPrivate = checked
+                    }
+                }
+            )
+        }
+
         Spacer(modifier = Modifier.height(16.dp))
 
         ConfirmDismissButtonsRow(
@@ -199,13 +219,14 @@ fun GroupEditContent(
                 if (groupName.isEmpty()) {
                     appCtx.toastOnUi("分组名称不能为空")
                 } else {
-                    if (group != null && group.groupId != 0b1L) {
+                    if (group != null) {
                         viewModel.upGroup(
                             group.copy(
                                 groupName = groupName,
                                 cover = coverPath,
                                 bookSort = selectedSortIndex,
-                                enableRefresh = enableRefresh
+                                enableRefresh = enableRefresh,
+                                isPrivate = isPrivate
                             )
                         ) {
                             onDismissRequest()
@@ -215,6 +236,7 @@ fun GroupEditContent(
                             groupName,
                             selectedSortIndex,
                             enableRefresh,
+                            isPrivate,
                             coverPath
                         ) {
                             onDismissRequest()
@@ -226,6 +248,20 @@ fun GroupEditContent(
             confirmText = stringResource(R.string.ok)
         )
     }
+
+    AppAlertDialog(
+        show = showDisablePrivateDialog,
+        onDismissRequest = { showDisablePrivateDialog = false },
+        title = stringResource(R.string.disable_private_group),
+        text = stringResource(R.string.sure_disable_private_group),
+        confirmText = stringResource(android.R.string.ok),
+        onConfirm = {
+            isPrivate = false
+            showDisablePrivateDialog = false
+        },
+        dismissText = stringResource(android.R.string.cancel),
+        onDismiss = { showDisablePrivateDialog = false }
+    )
 }
 
 @Composable
@@ -236,18 +272,20 @@ fun GroupDeleteAction(
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
 
-    MediumIconButton(
+    MediumPlainButton(
         onClick = {
             showDeleteDialog = true
         },
-        imageVector = Icons.Default.Delete
+        icon = Icons.Default.Delete
     )
 
     AppAlertDialog(
         show = showDeleteDialog,
         onDismissRequest = { showDeleteDialog = false },
         title = stringResource(R.string.delete),
-        text = stringResource(R.string.sure_del),
+        text = stringResource(
+            if (group.isPrivate) R.string.sure_del_private_group else R.string.sure_del
+        ),
         confirmText = stringResource(android.R.string.ok),
         onConfirm = {
             showDeleteDialog = false
@@ -266,7 +304,7 @@ fun GroupResetCoverAction(
     onCoverPathChange: (String?) -> Unit,
     viewModel: GroupViewModel = koinViewModel()
 ) {
-    MediumIconButton(
+    MediumPlainButton(
         onClick = {
             if (group != null) {
                 viewModel.clearCover(group) {
@@ -277,6 +315,6 @@ fun GroupResetCoverAction(
                 onCoverPathChange(null)
             }
         },
-        imageVector = Icons.Default.Restore
+        icon = Icons.Default.Restore
     )
 }

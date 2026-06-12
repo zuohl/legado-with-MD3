@@ -17,7 +17,12 @@ import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
 
-fun ColorScheme.toLegadoColorScheme(): LegadoColorScheme {
+fun ColorScheme.toLegadoColorScheme(
+    customBgColor: Color = background,
+    customFontColor: Color = onSurface,
+    customTopBarColor: Color = surface,
+    customNavBarColor: Color = surface
+): LegadoColorScheme {
     return LegadoColorScheme(
         primary = primary,
         onPrimary = onPrimary,
@@ -32,10 +37,10 @@ fun ColorScheme.toLegadoColorScheme(): LegadoColorScheme {
         onTertiary = onTertiary,
         tertiaryContainer = tertiaryContainer,
         onTertiaryContainer = onTertiaryContainer,
-        background = background,
-        onBackground = onBackground,
+        background = customBgColor,
+        onBackground = customFontColor,
         surface = surface,
-        onSurface = onSurface,
+        onSurface = customFontColor,
         surfaceVariant = surfaceVariant,
         onSurfaceVariant = onSurfaceVariant,
         surfaceTint = surfaceTint,
@@ -69,7 +74,17 @@ fun ColorScheme.toLegadoColorScheme(): LegadoColorScheme {
         onTertiaryFixedVariant = onTertiaryFixedVariant,
         cardContainer = primaryContainer.copy(alpha = 0.5f),
         onCardContainer = primary,
-        onSheetContent = surface
+        onSheetContent = surface,
+        cardPrimaryContainer = primaryContainer
+    )
+}
+
+fun ColorScheme.toLegadoColorScheme(): LegadoColorScheme {
+    return toLegadoColorScheme(
+        customBgColor = background,
+        customFontColor = onSurface,
+        customTopBarColor = surface,
+        customNavBarColor = surface
     )
 }
 

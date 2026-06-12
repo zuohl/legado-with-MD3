@@ -12,11 +12,11 @@ import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.BookSource
-import io.legado.app.help.config.AppConfig
-import io.legado.app.ui.config.otherConfig.OtherConfig
 import io.legado.app.model.analyzeRule.AnalyzeUrl
 import io.legado.app.model.localBook.LocalBook
 import io.legado.app.model.localBook.TextFile
+import io.legado.app.ui.config.otherConfig.OtherConfig
+import io.legado.app.ui.config.readConfig.ReadConfig
 import io.legado.app.utils.ArchiveUtils
 import io.legado.app.utils.FileUtils
 import io.legado.app.utils.ImageUtils
@@ -133,12 +133,12 @@ object BookHelp {
     private fun clearComicCache(book: Book) {
         //只处理漫画
         //为0的时候，不清除已缓存数据
-        if (!book.isImage || AppConfig.imageRetainNum == 0) {
+        if (!book.isImage || ReadConfig.imageRetainNum == 0) {
             return
         }
         //向前保留设定数量，向后保留预下载数量
-        val startIndex = book.durChapterIndex - AppConfig.imageRetainNum
-        val endIndex = book.durChapterIndex + AppConfig.preDownloadNum
+        val startIndex = book.durChapterIndex - ReadConfig.imageRetainNum
+        val endIndex = book.durChapterIndex + ReadConfig.preDownloadNum
         val chapterList = appDb.bookChapterDao.getChapterList(book.bookUrl, startIndex, endIndex)
         val imgNames = hashSetOf<String>()
         //获取需要保留章节的图片信息
@@ -202,7 +202,7 @@ object BookHelp {
             book.getFolderName(),
             bookChapter.getFileName(),
         ).writeText(content)
-        if (book.isOnLineTxt && AppConfig.tocCountWords) {
+        if (book.isOnLineTxt && ReadConfig.tocCountWords) {
             val wordCount = StringUtils.wordCountFormat(content.length)
             bookChapter.wordCount = wordCount
             appDb.bookChapterDao.update(bookChapter)
@@ -215,10 +215,6 @@ object BookHelp {
         val uri = book.getLocalUri()
         val charset = book.fileCharset()
         val oldTitle = bookChapter.title
-        val newContent = oldTitle + "\n" + content
-        val newBytes = newContent.toByteArray(charset)
-        val oldLength = end - start
-        val diff = newBytes.size - oldLength
 
         val pfd = if (uri.isContentScheme()) {
             appCtx.contentResolver.openFileDescriptor(uri, "rw")
@@ -230,6 +226,21 @@ object BookHelp {
             val fd = it.fileDescriptor
             try {
                 val totalLength = Os.fstat(fd).st_size
+
+                // 尝试保留章节末尾的换行符
+                val oldLength = end - start
+                val readLen = if (oldLength > 32) 32 else oldLength.toInt()
+                var gap = ""
+                if (readLen > 0) {
+                    val lastBytes = ByteArray(readLen)
+                    Os.pread(fd, lastBytes, 0, readLen, end - readLen)
+                    val lastString = String(lastBytes, charset)
+                    gap = lastString.takeLastWhile { c -> c == '\n' || c == '\r' }
+                }
+
+                val newContent = oldTitle + "\n" + content + gap
+                val newBytes = newContent.toByteArray(charset)
+                val diff = newBytes.size - oldLength
 
                 if (diff != 0L) {
                     val remaining = totalLength - end

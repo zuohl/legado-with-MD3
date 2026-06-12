@@ -9,25 +9,26 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.legado.app.constant.PreferKey
-import io.legado.app.domain.usecase.ClearBookCacheUseCase
-import io.legado.app.domain.usecase.ShrinkDatabaseUseCase
+import io.legado.app.data.repository.ReadAloudPreferences
+import io.legado.app.data.repository.ReadAloudSettingsRepository
 import io.legado.app.help.DirectLinkUpload
-import io.legado.app.help.config.AppConfig
 import io.legado.app.help.config.LocalConfig
 import io.legado.app.model.CheckSource
-import io.legado.app.model.ImageProvider
 import io.legado.app.receiver.SharedReceiverActivity
+import io.legado.app.ui.config.downloadCacheConfig.DownloadCacheConfig
 import io.legado.app.utils.FileUtils
 import io.legado.app.utils.putPrefString
 import io.legado.app.utils.restart
+import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import splitties.init.appCtx
 
 class OtherConfigViewModel(
-    private val clearBookCacheUseCase: ClearBookCacheUseCase,
-    private val shrinkDatabaseUseCase: ShrinkDatabaseUseCase
+    private val readAloudSettingsRepository: ReadAloudSettingsRepository
 ) : ViewModel() {
 
     private val packageManager = appCtx.packageManager
@@ -35,6 +36,36 @@ class OtherConfigViewModel(
         appCtx,
         SharedReceiverActivity::class.java.name
     )
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            OtherConfig.processText = isProcessTextEnabled()
+        }
+    }
+
+    val readAloudPreferences = readAloudSettingsRepository.preferences.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = ReadAloudPreferences()
+    )
+
+    fun setMediaButtonOnExit(value: Boolean) {
+        viewModelScope.launch {
+            readAloudSettingsRepository.setMediaButtonOnExit(value)
+        }
+    }
+
+    fun setReadAloudByMediaButton(value: Boolean) {
+        viewModelScope.launch {
+            readAloudSettingsRepository.setReadAloudByMediaButton(value)
+        }
+    }
+
+    fun setIgnoreAudioFocus(value: Boolean) {
+        viewModelScope.launch {
+            readAloudSettingsRepository.setIgnoreAudioFocus(value)
+        }
+    }
 
     fun isProcessTextEnabled(): Boolean {
         return packageManager.getComponentEnabledSetting(componentName) != PackageManager.COMPONENT_ENABLED_STATE_DISABLED
@@ -46,25 +77,17 @@ class OtherConfigViewModel(
         } else {
             PackageManager.COMPONENT_ENABLED_STATE_DISABLED
         }
-        packageManager.setComponentEnabledSetting(
-            componentName,
-            state,
-            PackageManager.DONT_KILL_APP
-        )
-    }
-
-    fun clearCache(context: Context) {
         viewModelScope.launch(Dispatchers.IO) {
-            clearBookCacheUseCase.executeAll()
-            FileUtils.delete(context.cacheDir.absolutePath)
-            context.externalCacheDir?.deleteRecursively()
-            context.cacheDir.deleteRecursively()
-        }
-    }
-
-    fun shrinkDatabase() {
-        viewModelScope.launch(Dispatchers.IO) {
-            shrinkDatabaseUseCase.execute()
+            runCatching {
+                packageManager.setComponentEnabledSetting(
+                    componentName,
+                    state,
+                    PackageManager.DONT_KILL_APP
+                )
+                OtherConfig.processText = enable
+            }.onFailure {
+                appCtx.toastOnUi(it.localizedMessage)
+            }
         }
     }
 
@@ -82,13 +105,7 @@ class OtherConfigViewModel(
     }
 
     fun saveUserAgent(input: String) {
-        OtherConfig.userAgent = input
-        AppConfig.userAgent = OtherConfig.userAgent
-    }
-
-    fun updateBitmapCacheSize(size: Int) {
-        AppConfig.bitmapCacheSize = size
-        ImageProvider.bitmapLruCache.resize(ImageProvider.cacheSize)
+        DownloadCacheConfig.userAgent = input
     }
 
     fun updateLocalBookDir(path: String) {

@@ -5,7 +5,6 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import com.materialkolor.PaletteStyle
@@ -74,7 +73,8 @@ data class LegadoColorScheme(
 
     val cardContainer: Color,
     val onCardContainer: Color,
-    val onSheetContent: Color
+    val onSheetContent: Color,
+    val cardPrimaryContainer: Color
 )
 
 data class LegadoTypography(
@@ -109,15 +109,15 @@ data class LegadoTypography(
 
     )
 
-val LocalLegadoColorScheme = staticCompositionLocalOf<LegadoColorScheme> {
+val LocalLegadoColorScheme = compositionLocalOf<LegadoColorScheme> {
     error("No ColorScheme provided")
 }
 
-val LocalLegadoTypography = staticCompositionLocalOf<LegadoTypography> {
+val LocalLegadoTypography = compositionLocalOf<LegadoTypography> {
     error("No Typography provided")
 }
 
-val LocalLegadoThemeColors = staticCompositionLocalOf {
+val LocalLegadoThemeColors = compositionLocalOf {
     LegadoThemeMode(
         colorScheme = lightColorScheme(),
         isDark = false,

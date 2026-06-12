@@ -18,11 +18,11 @@ import io.legado.app.help.book.isAudio
 import io.legado.app.help.book.isImage
 import io.legado.app.help.book.isLocal
 import io.legado.app.help.config.AppConfig
+import io.legado.app.ui.config.readMangaConfig.ReadMangaConfig
 import io.legado.app.model.SourceCallBack
 import io.legado.app.ui.book.audio.AudioPlayActivity
 import io.legado.app.ui.book.info.edit.BookInfoEditActivity
 import io.legado.app.ui.book.manga.ReadMangaActivity
-import io.legado.app.ui.book.read.ReadBookActivity
 import io.legado.app.ui.book.source.edit.BookSourceEditActivity
 import io.legado.app.ui.book.toc.TocActivityResult
 import io.legado.app.ui.config.otherConfig.OtherConfig
@@ -40,10 +40,17 @@ import kotlinx.coroutines.flow.collectLatest
 @Composable
 fun BookInfoRouteScreen(
     bookUrl: String,
+    name: String? = null,
+    author: String? = null,
+    origin: String? = null,
+    coverPath: String? = null,
     viewModel: BookInfoViewModel,
     onBack: () -> Unit,
     onFinish: (resultCode: Int?, afterTransition: Boolean) -> Unit,
     onOpenSearch: (String) -> Unit,
+    onOpenReader: (bookUrl: String, inBookshelf: Boolean, chapterChanged: Boolean) -> Unit = { _, _, _ -> },
+    onNavigateToBookInfo: (name: String?, author: String?, bookUrl: String, origin: String?, coverPath: String?) -> Unit = { _, _, _, _, _ -> },
+    onNavigateToExploreShow: (title: String?, sourceUrl: String, exploreUrl: String?) -> Unit = { _, _, _ -> },
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     sharedCoverKey: String? = null,
@@ -80,8 +87,14 @@ fun BookInfoRouteScreen(
         viewModel.onReaderResult(it.resultCode)
     }
 
-    LaunchedEffect(bookUrl, viewModel) {
-        viewModel.initData(bookUrl)
+    LaunchedEffect(bookUrl, name, author, origin, coverPath, viewModel) {
+        viewModel.initData(
+            bookUrl = bookUrl,
+            name = name,
+            author = author,
+            origin = origin,
+            coverPath = coverPath
+        )
     }
 
     DisposableEffect(viewModel) {
@@ -107,11 +120,19 @@ fun BookInfoRouteScreen(
                 is BookInfoEffect.OpenReader -> {
                     val cls = when {
                         effect.book.isAudio -> AudioPlayActivity::class.java
-                        !effect.book.isLocal && effect.book.isImage && AppConfig.showMangaUi -> {
+                        !effect.book.isLocal && effect.book.isImage && ReadMangaConfig.showMangaUi -> {
                             ReadMangaActivity::class.java
                         }
 
-                        else -> ReadBookActivity::class.java
+                        else -> null
+                    }
+                    if (cls == null) {
+                        onOpenReader(
+                            effect.book.bookUrl,
+                            effect.inBookshelf,
+                            effect.chapterChanged,
+                        )
+                        return@collectLatest
                     }
                     readBookResult.launch(
                         Intent(activity, cls).apply {
@@ -154,6 +175,14 @@ fun BookInfoRouteScreen(
                             effect.comment,
                         )
                     )
+                }
+
+                is BookInfoEffect.NavigateToBookInfo -> {
+                    onNavigateToBookInfo(effect.name, effect.author, effect.bookUrl, effect.origin, effect.coverPath)
+                }
+
+                is BookInfoEffect.NavigateToExploreShow -> {
+                    onNavigateToExploreShow(effect.title, effect.sourceUrl, effect.exploreUrl)
                 }
             }
         }

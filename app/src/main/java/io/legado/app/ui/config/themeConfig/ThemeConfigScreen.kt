@@ -2,8 +2,12 @@ package io.legado.app.ui.config.themeConfig
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.widget.TextView
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.BorderStroke
@@ -15,7 +19,6 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,9 +33,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BrightnessMedium
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Card
@@ -55,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringArrayResource
@@ -62,28 +68,33 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.constraintlayout.compose.ConstraintLayout
-import com.google.android.material.color.DynamicColors
-import com.google.android.material.color.DynamicColorsOptions
+import androidx.core.net.toUri
+
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
 import io.legado.app.base.AppContextWrapper
 import io.legado.app.constant.EventBus
+import io.legado.app.constant.PreferKey
 import io.legado.app.help.LauncherIconHelp
-import io.legado.app.help.config.AppConfig
-import io.legado.app.help.config.OldThemeConfig
-import io.legado.app.lib.theme.ThemeStore
-import io.legado.app.lib.theme.primaryColor
+import io.legado.app.help.config.ThemeConfigStore
+import io.legado.app.help.loadFontFiles
+import io.legado.app.ui.config.labConfig.LabConfig
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.theme.ThemeEngine
 import io.legado.app.ui.theme.ThemeResolver
 import io.legado.app.ui.theme.adaptiveContentPadding
 import io.legado.app.ui.widget.components.AppScaffold
-import io.legado.app.ui.widget.components.AppTextField
+import io.legado.app.ui.widget.components.FontSelectSheet
 import io.legado.app.ui.widget.components.SplicedColumnGroup
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
-import io.legado.app.ui.widget.components.topbar.TopBarNavigationButton
+import io.legado.app.ui.widget.components.button.series.SmallPlainButton
+import io.legado.app.ui.widget.components.card.GlassCard
+import io.legado.app.ui.widget.components.card.NormalCard
 import io.legado.app.ui.widget.components.dialog.ColorPickerSheet
+import io.legado.app.ui.widget.components.icon.AppIcons
 import io.legado.app.ui.widget.components.settingItem.ClickableSettingItem
 import io.legado.app.ui.widget.components.settingItem.DropdownListSettingItem
 import io.legado.app.ui.widget.components.settingItem.SliderSettingItem
@@ -91,19 +102,21 @@ import io.legado.app.ui.widget.components.settingItem.SwitchSettingItem
 import io.legado.app.ui.widget.components.text.AppText
 import io.legado.app.ui.widget.components.topbar.GlassMediumFlexibleTopAppBar
 import io.legado.app.ui.widget.components.topbar.GlassTopAppBarDefaults
+import io.legado.app.ui.widget.components.topbar.TopBarNavigationButton
+import io.legado.app.utils.getPrefString
 import io.legado.app.utils.postEvent
+import io.legado.app.utils.putPrefString
 import io.legado.app.utils.restart
+import io.legado.app.utils.takePersistablePermissionSafely
 import io.legado.app.utils.toastOnUi
 import org.koin.androidx.compose.koinViewModel
-import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.basic.Card as MiuixCard
-import top.yukonga.miuix.kmp.basic.CardDefaults as MiuixCardDefaults
-import top.yukonga.miuix.kmp.basic.Text as MiuixText
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ThemeConfigScreen(
     onBackClick: () -> Unit,
+    onNavigateToCustomTheme: () -> Unit,
+    onNavigateToThemeManage: () -> Unit,
     viewModel: ThemeConfigViewModel = koinViewModel()
 ) {
     val scrollBehavior = GlassTopAppBarDefaults.defaultScrollBehavior()
@@ -114,16 +127,29 @@ fun ThemeConfigScreen(
     var selectedTheme by remember { mutableStateOf(ThemeConfig.appTheme) }
     var useMiuixMonet by remember { mutableStateOf(ThemeConfig.useMiuixMonet) }
     var showRestartDialog by remember { mutableStateOf(false) }
-    var showColorPicker by remember { mutableStateOf(false) }
-    var pickNightSeedColor by remember { mutableStateOf(false) }
     var showLauncherIconPicker by remember { mutableStateOf(false) }
-    var showThemeListDialog by remember { mutableStateOf(false) }
-    var saveThemeKey by remember { mutableStateOf<String?>(null) }
-    var themeName by remember { mutableStateOf("") }
+    var showBorderColorPicker by remember { mutableStateOf(false) }
+    var showNavIconSheet by remember { mutableStateOf(false) }
+    var showFontSheet by remember { mutableStateOf(false) }
+    val showThemeRefactorTip by viewModel.showThemeRefactorTip.collectAsStateWithLifecycle()
+
+    var fontFolderUri by remember {
+        mutableStateOf(
+            context.getPrefString(PreferKey.fontFolder)?.toUri()
+        )
+    }
+
+    val fontFolderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            fontFolderUri = uri
+            uri.takePersistablePermissionSafely(context, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            context.putPrefString(PreferKey.fontFolder, uri.toString())
+        }
+    }
 
     val fontScaleValue = remember { mutableFloatStateOf(ThemeConfig.fontScale.toFloat()) }
-    val primaryColorValue = remember { mutableIntStateOf(ThemeConfig.cPrimary) }
-    val nightPrimaryColorValue = remember { mutableIntStateOf(ThemeConfig.cNPrimary) }
 
     AppScaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -155,428 +181,637 @@ fun ThemeConfigScreen(
                     else -> isSystemInDarkTheme()
                 }
 
-            if (!isMiuixEngine) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    ThemeCard(
-                        context = context,
-                        value = selectedTheme,
-                        isDark = isDarkTheme,
-                        isAmoled = ThemeConfig.isPureBlack,
-                        paletteStyle = ThemeConfig.paletteStyle,
-                        customLightSeedColor = primaryColorValue.intValue,
-                        customNightSeedColor = nightPrimaryColorValue.intValue
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            val themeItems = stringArrayResource(R.array.themes_item)
-            val themeValues = stringArrayResource(R.array.themes_value)
-            val themes = remember(themeItems, themeValues) {
-                themeItems.zip(themeValues).toList()
-            }
-
-            if (isMiuixEngine) {
-                MiuixCard(
-                    cornerRadius = 16.dp,
-                    insideMargin = PaddingValues(16.dp),
-                    colors = MiuixCardDefaults.defaultColors(
-                        color = MiuixTheme.colorScheme.primaryVariant,
-                        contentColor = MiuixTheme.colorScheme.onPrimary
-                    )
-                ) {
-                    MiuixText("Miuix 目前为测试主题，且不对基于View的界面生效！")
-                }
-            }
-
-
-            SplicedColumnGroup(title = stringResource(R.string.theme)) {
-                if (isMiuixEngine) {
-                    DropdownListSettingItem(
-                        title = stringResource(R.string.theme_mode),
-                        selectedValue = selectedThemeMode,
-                        displayEntries = stringArrayResource(R.array.theme_mode),
-                        entryValues = stringArrayResource(R.array.theme_mode_v),
-                        onValueChange = { mode ->
-                            selectedThemeMode = mode
-                            ThemeConfig.themeMode = mode
-                            OldThemeConfig.applyDayNight(context)
-                        }
-                    )
-
-                    SwitchSettingItem(
-                        title = stringResource(R.string.miuix_monet),
-                        description = stringResource(R.string.miuix_monet_summary),
-                        checked = useMiuixMonet,
-                        onCheckedChange = {
-                            useMiuixMonet = it
-                            ThemeConfig.useMiuixMonet = it
-                            if (it && selectedTheme != "0" && selectedTheme != "12") {
-                                selectedTheme = "0"
-                                ThemeConfig.appTheme = "0"
-                            }
-                        }
-                    )
-
-                    if (useMiuixMonet) {
-                        SwitchSettingItem(
-                            title = stringResource(R.string.dynamic_colors),
-                            description = stringResource(R.string.dynamic_colors_summary),
-                            checked = selectedTheme == "0",
-                            onCheckedChange = { checked ->
-                                val newTheme = if (checked) "0" else "12"
-                                val oldTheme = selectedTheme
-                                selectedTheme = newTheme
-                                ThemeConfig.appTheme = newTheme
-                                if (oldTheme != newTheme) {
-                                    showRestartDialog = true
-                                }
-                            }
-                        )
-                    }
-                } else {
-                    ThemeModeSelector(
-                        selectedMode = selectedThemeMode,
-                        onModeSelected = { mode ->
-                            selectedThemeMode = mode
-                            ThemeConfig.themeMode = mode
-                            OldThemeConfig.applyDayNight(context)
-                        }
-                    )
-                }
-
                 if (!isMiuixEngine) {
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    ThemeColorSelector(
-                        context = context,
-                        themes = themes,
-                        selectedTheme = selectedTheme,
-                        isDark = isDarkTheme,
-                        isAmoled = ThemeConfig.isPureBlack,
-                        paletteStyle = ThemeConfig.paletteStyle,
-                        customLightSeedColor = primaryColorValue.intValue,
-                        customNightSeedColor = nightPrimaryColorValue.intValue,
-                        onThemeSelected = { theme ->
-                            if (theme == "13") {
-                                val hasLightBg = !ThemeConfig.bgImageLight.isNullOrEmpty()
-                                val hasDarkBg = !ThemeConfig.bgImageDark.isNullOrEmpty()
-                                if (!hasLightBg || !hasDarkBg) {
-                                    context.toastOnUi(R.string.transparent_theme_alarm)
-                                    return@ThemeColorSelector
-                                } else {
-                                    AppConfig.containerOpacity = 0
-                                }
-                            }
-                            val oldTheme = selectedTheme
-                            selectedTheme = theme
-                            ThemeConfig.appTheme = theme
-                            val isDynamicSwitch = (oldTheme == "12" || theme == "12")
-                            if (isDynamicSwitch) {
-                                showRestartDialog = true
-                            } else {
-                                postEvent(EventBus.RECREATE, "")
-                            }
-                        }
-                    )
-                }
-            }
-
-            SplicedColumnGroup {
-                DropdownListSettingItem(
-                    title = stringResource(R.string.compose_engine),
-                    selectedValue = ThemeConfig.composeEngine,
-                    displayEntries = stringArrayResource(R.array.composeEngine),
-                    entryValues = stringArrayResource(R.array.composeEngine_value),
-                    onValueChange = {
-                        ThemeConfig.composeEngine = it
-                    }
-                )
-                ClickableSettingItem(
-                    title = stringResource(R.string.change_icon),
-                    description = stringResource(R.string.change_icon_summary),
-                    onClick = { showLauncherIconPicker = true }
-                )
-                SwitchSettingItem(
-                    title = stringResource(R.string.predictive_back),
-                    description = stringResource(R.string.predictive_back_summary),
-                    checked = ThemeConfig.isPredictiveBackEnabled,
-                    onCheckedChange = {
-                        ThemeConfig.isPredictiveBackEnabled = it
-                        context.toastOnUi(R.string.restart_to_apply)
-                    }
-                )
-                SliderSettingItem(
-                    title = stringResource(R.string.font_scale),
-                    description = stringResource(
-                        R.string.font_scale_summary,
-                        AppContextWrapper.getFontScale(context)
-                    ),
-                    value = fontScaleValue.floatValue,
-                    defaultValue = 10f,
-                    valueRange = 8f..16f,
-                    steps = 7,
-                    onValueChange = { value ->
-                        fontScaleValue.floatValue = value
-                        ThemeConfig.fontScale = value.toInt()
-                    }
-                )
-            }
-
-            val showCustomThemeOptions = selectedTheme == "12" && (!isMiuixEngine || useMiuixMonet)
-            if (showCustomThemeOptions) {
-                SplicedColumnGroup(title = stringResource(R.string.custom_theme)) {
-                    ClickableSettingItem(
-                        title = stringResource(R.string.seed_color),
-                        description = stringResource(R.string.day),
-                        option = formatColorOption(primaryColorValue.intValue)
-                            ?: stringResource(R.string.click_to_select),
-                        onClick = {
-                            pickNightSeedColor = false
-                            showColorPicker = true
-                        },
-                        trailingContent = { ColorSwatch(colorValue = primaryColorValue.intValue) }
-                    )
-                    ClickableSettingItem(
-                        title = stringResource(R.string.seed_color),
-                        description = stringResource(R.string.night),
-                        option = formatColorOption(nightPrimaryColorValue.intValue)
-                            ?: stringResource(R.string.click_to_select),
-                        onClick = {
-                            pickNightSeedColor = true
-                            showColorPicker = true
-                        },
-                        trailingContent = { ColorSwatch(colorValue = nightPrimaryColorValue.intValue) }
-                    )
-                    DropdownListSettingItem(
-                        title = stringResource(R.string.palette_style),
-                        selectedValue = ThemeConfig.paletteStyle,
-                        displayEntries = stringArrayResource(R.array.paletteStyle),
-                        entryValues = stringArrayResource(R.array.paletteStyle_value),
-                        onValueChange = { ThemeConfig.paletteStyle = it }
-                    )
-                    DropdownListSettingItem(
-                        title = stringResource(R.string.preferred_contrast),
-                        selectedValue = ThemeConfig.customContrast,
-                        displayEntries = stringArrayResource(R.array.customContrast),
-                        entryValues = stringArrayResource(R.array.customContrast_value),
-                        onValueChange = { ThemeConfig.customContrast = it }
-                    )
-                    DropdownListSettingItem(
-                        title = stringResource(R.string.material_version),
-                        selectedValue = ThemeConfig.materialVersion,
-                        displayEntries = stringArrayResource(R.array.materialVersion),
-                        entryValues = stringArrayResource(R.array.materialVersion_value),
-                        onValueChange = { ThemeConfig.materialVersion = it }
-                    )
-                }
-            }
-
-            SplicedColumnGroup(title = stringResource(R.string.main_activity)) {
-                SwitchSettingItem(
-                    title = stringResource(R.string.show_discovery),
-                    checked = ThemeConfig.showDiscovery,
-                    onCheckedChange = { ThemeConfig.showDiscovery = it }
-                )
-                SwitchSettingItem(
-                    title = stringResource(R.string.show_rss),
-                    checked = ThemeConfig.showRss,
-                    onCheckedChange = { ThemeConfig.showRss = it }
-                )
-                SwitchSettingItem(
-                    title = stringResource(R.string.show_status),
-                    checked = ThemeConfig.showStatusBar,
-                    onCheckedChange = { ThemeConfig.showStatusBar = it }
-                )
-                //TODO:这个可以不要了，在删掉原来的设置页以后删
-                SwitchSettingItem(
-                    title = stringResource(R.string.show_swipe_animation),
-                    checked = ThemeConfig.swipeAnimation,
-                    onCheckedChange = { ThemeConfig.swipeAnimation = it }
-                )
-                SwitchSettingItem(
-                    title = stringResource(R.string.show_bottom_nav),
-                    description = stringResource(R.string.be_swiped),
-                    checked = ThemeConfig.showBottomView,
-                    onCheckedChange = { ThemeConfig.showBottomView = it }
-                )
-                SwitchSettingItem(
-                    title = stringResource(R.string.floating_bottom_bar),
-                    description = stringResource(R.string.floating_bottom_bar_summary),
-                    checked = ThemeConfig.useFloatingBottomBar,
-                    onCheckedChange = { ThemeConfig.useFloatingBottomBar = it }
-                )
-                AnimatedVisibility(visible = ThemeConfig.useFloatingBottomBar) {
-                    SwitchSettingItem(
-                        title = stringResource(R.string.floating_bottom_bar_liquid_glass),
-                        description = stringResource(R.string.floating_bottom_bar_liquid_glass_summary),
-                        checked = ThemeConfig.useFloatingBottomBarLiquidGlass,
-                        onCheckedChange = { ThemeConfig.useFloatingBottomBarLiquidGlass = it }
-                    )
-                }
-                DropdownListSettingItem(
-                    title = stringResource(R.string.tabletInterface),
-                    selectedValue = ThemeConfig.tabletInterface,
-                    displayEntries = stringArrayResource(R.array.tabletInterface),
-                    entryValues = stringArrayResource(R.array.tabletInterface_value),
-                    onValueChange = { ThemeConfig.tabletInterface = it }
-                )
-                DropdownListSettingItem(
-                    title = stringResource(R.string.nav_label_mode),
-                    selectedValue = ThemeConfig.labelVisibilityMode,
-                    displayEntries = stringArrayResource(R.array.label_vis_mode),
-                    entryValues = stringArrayResource(R.array.label_vis_mode_value),
-                    onValueChange = { ThemeConfig.labelVisibilityMode = it }
-                )
-                DropdownListSettingItem(
-                    title = stringResource(R.string.default_home_page),
-                    selectedValue = ThemeConfig.defaultHomePage,
-                    displayEntries = stringArrayResource(R.array.default_home_page),
-                    entryValues = stringArrayResource(R.array.default_home_page_value),
-                    onValueChange = { ThemeConfig.defaultHomePage = it }
-                )
-            }
-
-            SplicedColumnGroup(title = stringResource(R.string.share)) {
-                ClickableSettingItem(
-                    title = stringResource(R.string.theme_list),
-                    description = stringResource(R.string.theme_list_summary),
-                    onClick = { showThemeListDialog = true }
-                )
-                ClickableSettingItem(
-                    title = stringResource(R.string.save_theme_config),
-                    description = stringResource(R.string.save_day_theme_summary),
-                    onClick = {
-                        saveThemeKey = "saveDayTheme"
-                        themeName = ""
-                    }
-                )
-            }
-
-            SplicedColumnGroup(title = stringResource(R.string.compose_related)) {
-                if (!isMiuixEngine) {
-                    SwitchSettingItem(
-                        title = stringResource(R.string.pure_black),
-                        checked = ThemeConfig.isPureBlack,
-                        onCheckedChange = { ThemeConfig.isPureBlack = it }
-                    )
-                    SwitchSettingItem(
-                        title = stringResource(R.string.use_flexible_top_bar),
-                        checked = ThemeConfig.useFlexibleTopAppBar,
-                        onCheckedChange = { ThemeConfig.useFlexibleTopAppBar = it }
-                    )
-                }
-                SwitchSettingItem(
-                    title = stringResource(R.string.is_blur_enable),
-                    checked = ThemeConfig.enableBlur,
-                    onCheckedChange = {
-                        ThemeConfig.enableBlur = it
-                        if (!it) ThemeConfig.enableProgressiveBlur = false
-                    }
-                )
-                AnimatedVisibility(visible = ThemeConfig.enableBlur) {
-                    SwitchSettingItem(
-                        title = stringResource(R.string.is_blur_progressive_enable),
-                        checked = ThemeConfig.enableProgressiveBlur,
-                        onCheckedChange = { ThemeConfig.enableProgressiveBlur = it }
-                    )
-                }
-                AnimatedVisibility(visible = !isMiuixEngine && !ThemeConfig.enableBlur) {
                     Column(
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        SliderSettingItem(
-                            title = stringResource(R.string.top_bar_opacity),
-                            description = stringResource(
-                                R.string.top_bar_opacity_summary,
-                                ThemeConfig.topBarOpacity
-                            ),
-                            value = ThemeConfig.topBarOpacity.toFloat(),
-                            defaultValue = 100f,
-                            valueRange = 0f..100f,
-                            steps = 99,
-                            onValueChange = { ThemeConfig.topBarOpacity = it.toInt() }
-                        )
-                        SliderSettingItem(
-                            title = stringResource(R.string.bottom_bar_opacity),
-                            description = stringResource(
-                                R.string.bottom_bar_opacity_summary,
-                                ThemeConfig.bottomBarOpacity
-                            ),
-                            value = ThemeConfig.bottomBarOpacity.toFloat(),
-                            defaultValue = 100f,
-                            valueRange = 0f..100f,
-                            steps = 99,
-                            onValueChange = { ThemeConfig.bottomBarOpacity = it.toInt() }
+                        ThemeCard(
+                            context = context,
+                            value = selectedTheme,
+                            isDark = isDarkTheme,
+                            isAmoled = ThemeConfig.isPureBlack,
+                            paletteStyle = ThemeConfig.paletteStyle,
+                            customLightSeedColor = ThemeConfig.cPrimary,
+                            customNightSeedColor = ThemeConfig.cNPrimary
                         )
                     }
                 }
-                if (!isMiuixEngine) {
-                    SliderSettingItem(
-                        title = stringResource(R.string.container_opacity),
-                        description = stringResource(
-                            R.string.container_opacity_summary,
-                            ThemeConfig.containerOpacity
-                        ),
-                        value = ThemeConfig.containerOpacity.toFloat(),
-                        defaultValue = 100f,
-                        valueRange = 0f..100f,
-                        steps = 99,
-                        onValueChange = { ThemeConfig.containerOpacity = it.toInt() }
-                    )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                val themeItems = stringArrayResource(R.array.themes_item)
+                val themeValues = stringArrayResource(R.array.themes_value)
+                val themes = remember(themeItems, themeValues) {
+                    themeItems.zip(themeValues).toList()
                 }
-            }
 
-            SplicedColumnGroup(title = stringResource(R.string.day)) {
-                val hasLightBg = !ThemeConfig.bgImageLight.isNullOrBlank()
-                ClickableSettingItem(
-                    title = stringResource(R.string.background_image),
-                    description = if (hasLightBg) stringResource(R.string.click_to_delete) else stringResource(
-                        R.string.select_image
-                    ),
-                    onClick = { manageKey = false }
-                )
+                AnimatedVisibility(visible = showThemeRefactorTip) {
+                    GlassCard(
+                        cornerRadius = 16.dp,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            AppText(
+                                text = "仍有部分界面未用Compose重构，这些界面会与大部分界面有较大差异。",
+                                style = LegadoTheme.typography.labelLargeEmphasized,
+                                modifier = Modifier.weight(1f)
+                            )
+                            SmallPlainButton(
+                                icon = AppIcons.Close,
+                                contentDescription = "关闭",
+                                onClick = {
+                                    viewModel.setShowThemeRefactorTip(false)
+                                }
+                            )
+                        }
+                    }
+                }
 
-                if (hasLightBg) {
-                    SliderSettingItem(
-                        title = stringResource(R.string.background_image_blurring),
-                        value = ThemeConfig.bgImageBlurring.toFloat(),
-                        defaultValue = 0f,
-                        valueRange = 0f..100f,
-                        steps = 99,
+
+                SplicedColumnGroup(title = stringResource(R.string.theme)) {
+                    if (isMiuixEngine) {
+                        DropdownListSettingItem(
+                            title = stringResource(R.string.theme_mode),
+                            selectedValue = selectedThemeMode,
+                            displayEntries = stringArrayResource(R.array.theme_mode),
+                            entryValues = stringArrayResource(R.array.theme_mode_v),
+                            onValueChange = { mode ->
+                                selectedThemeMode = mode
+                                ThemeConfig.themeMode = mode
+                                ThemeConfigStore.applyDayNight(context)
+                            }
+                        )
+
+                        SwitchSettingItem(
+                            title = stringResource(R.string.miuix_monet),
+                            description = stringResource(R.string.miuix_monet_summary),
+                            checked = useMiuixMonet,
+                            onCheckedChange = {
+                                useMiuixMonet = it
+                                ThemeConfig.useMiuixMonet = it
+                                if (it && selectedTheme != "0" && selectedTheme != "12") {
+                                    selectedTheme = "0"
+                                    ThemeConfig.appTheme = "0"
+                                }
+                            }
+                        )
+
+                        if (useMiuixMonet) {
+                            SwitchSettingItem(
+                                title = stringResource(R.string.dynamic_colors),
+                                description = stringResource(R.string.dynamic_colors_summary),
+                                checked = selectedTheme == "0",
+                                onCheckedChange = { checked ->
+                                    val newTheme = if (checked) "0" else "12"
+                                    val oldTheme = selectedTheme
+                                    selectedTheme = newTheme
+                                    ThemeConfig.appTheme = newTheme
+                                    if (oldTheme != newTheme) {
+                                        showRestartDialog = true
+                                    }
+                                }
+                            )
+                        }
+                    } else {
+                        ThemeModeSelector(
+                            selectedMode = selectedThemeMode,
+                            onModeSelected = { mode ->
+                                selectedThemeMode = mode
+                                ThemeConfig.themeMode = mode
+                                ThemeConfigStore.applyDayNight(context)
+                            }
+                        )
+                    }
+
+                    if (!isMiuixEngine) {
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        val visibleThemes = themes.filter { (_, value) ->
+                            value != "4" || (LabConfig.labEnabled && LabConfig.eInkDisplay)
+                        }
+                        ThemeColorSelector(
+                            context = context,
+                            themes = visibleThemes,
+                            selectedTheme = selectedTheme,
+                            isDark = isDarkTheme,
+                            isAmoled = ThemeConfig.isPureBlack,
+                            paletteStyle = ThemeConfig.paletteStyle,
+                            customLightSeedColor = ThemeConfig.cPrimary,
+                            customNightSeedColor = ThemeConfig.cNPrimary,
+                            onThemeSelected = { theme ->
+                                if (theme == "13") {
+                                    val hasLightBg = !ThemeConfig.bgImageLight.isNullOrEmpty()
+                                    val hasDarkBg = !ThemeConfig.bgImageDark.isNullOrEmpty()
+                                    if (!hasLightBg || !hasDarkBg) {
+                                        context.toastOnUi(R.string.transparent_theme_alarm)
+                                        return@ThemeColorSelector
+                                    } else {
+                                        ThemeConfig.containerOpacity = 0
+                                    }
+                                }
+                                val oldTheme = selectedTheme
+                                selectedTheme = theme
+                                ThemeConfig.appTheme = theme
+                                val isDynamicSwitch = (oldTheme == "12" || theme == "12")
+                                if (isDynamicSwitch) {
+                                    showRestartDialog = true
+                                } else {
+                                    postEvent(EventBus.RECREATE, "")
+                                }
+                            }
+                        )
+                    }
+                }
+
+                SplicedColumnGroup {
+                    ClickableSettingItem(
+                        title = stringResource(R.string.font_setting),
+                        onClick = { showFontSheet = true }
+                    )
+                    if (selectedTheme == "12" && (!isMiuixEngine || useMiuixMonet)) {
+                        ClickableSettingItem(
+                            title = stringResource(R.string.custom_theme),
+                            onClick = onNavigateToCustomTheme
+                        )
+                    }
+                    DropdownListSettingItem(
+                        title = stringResource(R.string.compose_engine),
+                        selectedValue = ThemeConfig.composeEngine,
+                        displayEntries = stringArrayResource(R.array.composeEngine),
+                        entryValues = stringArrayResource(R.array.composeEngine_value),
                         onValueChange = {
-                            ThemeConfig.bgImageBlurring = it.toInt()
+                            ThemeConfig.composeEngine = it
+                        }
+                    )
+                    ClickableSettingItem(
+                        title = stringResource(R.string.change_icon),
+                        description = stringResource(R.string.change_icon_summary),
+                        onClick = { showLauncherIconPicker = true }
+                    )
+                    SwitchSettingItem(
+                        title = stringResource(R.string.predictive_back),
+                        description = stringResource(R.string.predictive_back_summary),
+                        checked = ThemeConfig.isPredictiveBackEnabled,
+                        onCheckedChange = {
+                            ThemeConfig.isPredictiveBackEnabled = it
+                            context.toastOnUi(R.string.restart_to_apply)
+                        }
+                    )
+                    SliderSettingItem(
+                        title = stringResource(R.string.font_scale),
+                        description = stringResource(
+                            R.string.font_scale_summary,
+                            AppContextWrapper.getFontScale(context)
+                        ),
+                        value = fontScaleValue.floatValue,
+                        defaultValue = 10f,
+                        valueRange = 8f..16f,
+                        steps = 7,
+                        onValueChange = { value ->
+                            fontScaleValue.floatValue = value
+                            ThemeConfig.fontScale = value.toInt()
                         }
                     )
                 }
-            }
+
+                SplicedColumnGroup(title = stringResource(R.string.main_activity)) {
+                    SwitchSettingItem(
+                        title = stringResource(R.string.show_home),
+                        checked = ThemeConfig.showHome,
+                        onCheckedChange = { ThemeConfig.showHome = it }
+                    )
+                    SwitchSettingItem(
+                        title = stringResource(R.string.show_discovery),
+                        checked = ThemeConfig.showDiscovery,
+                        onCheckedChange = { ThemeConfig.showDiscovery = it }
+                    )
+                    SwitchSettingItem(
+                        title = stringResource(R.string.show_rss),
+                        checked = ThemeConfig.showRss,
+                        onCheckedChange = { ThemeConfig.showRss = it }
+                    )
+                    SwitchSettingItem(
+                        title = stringResource(R.string.show_status),
+                        checked = ThemeConfig.showStatusBar,
+                        onCheckedChange = { ThemeConfig.showStatusBar = it }
+                    )
+                    //TODO:这个可以不要了，在删掉原来的设置页以后删
+                    SwitchSettingItem(
+                        title = stringResource(R.string.show_swipe_animation),
+                        checked = ThemeConfig.swipeAnimation,
+                        onCheckedChange = { ThemeConfig.swipeAnimation = it }
+                    )
+                    SwitchSettingItem(
+                        title = stringResource(R.string.show_bottom_nav),
+                        description = stringResource(R.string.be_swiped),
+                        checked = ThemeConfig.showBottomView,
+                        onCheckedChange = { ThemeConfig.showBottomView = it }
+                    )
+                    SwitchSettingItem(
+                        title = stringResource(R.string.floating_bottom_bar),
+                        description = stringResource(R.string.floating_bottom_bar_summary),
+                        checked = ThemeConfig.useFloatingBottomBar,
+                        onCheckedChange = { ThemeConfig.useFloatingBottomBar = it }
+                    )
+                    AnimatedVisibility(visible = ThemeConfig.useFloatingBottomBar) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            SwitchSettingItem(
+                                title = stringResource(R.string.floating_bottom_bar_liquid_glass),
+                                description = stringResource(R.string.floating_bottom_bar_liquid_glass_summary),
+                                checked = ThemeConfig.useFloatingBottomBarLiquidGlass,
+                                onCheckedChange = { ThemeConfig.useFloatingBottomBarLiquidGlass = it }
+                            )
+                            SliderSettingItem(
+                                title = stringResource(R.string.theme_config_bottom_bar_lens_radius),
+                                description = stringResource(R.string.theme_config_bottom_bar_lens_radius_summary),
+                                value = ThemeConfig.bottomBarLensRadius,
+                                defaultValue = 24f,
+                                valueRange = 0f..50f,
+                                onValueChange = { ThemeConfig.bottomBarLensRadius = it }
+                            )
+                        }
+
+                    }
+                    DropdownListSettingItem(
+                        title = stringResource(R.string.tabletInterface),
+                        selectedValue = ThemeConfig.tabletInterface,
+                        displayEntries = stringArrayResource(R.array.tabletInterface),
+                        entryValues = stringArrayResource(R.array.tabletInterface_value),
+                        onValueChange = { ThemeConfig.tabletInterface = it }
+                    )
+                    DropdownListSettingItem(
+                        title = stringResource(R.string.nav_label_mode),
+                        selectedValue = ThemeConfig.labelVisibilityMode,
+                        displayEntries = stringArrayResource(R.array.label_vis_mode),
+                        entryValues = stringArrayResource(R.array.label_vis_mode_value),
+                        onValueChange = { ThemeConfig.labelVisibilityMode = it }
+                    )
+                    DropdownListSettingItem(
+                        title = stringResource(R.string.default_home_page),
+                        selectedValue = ThemeConfig.defaultHomePage,
+                        displayEntries = stringArrayResource(R.array.default_home_page),
+                        entryValues = stringArrayResource(R.array.default_home_page_value),
+                        onValueChange = { ThemeConfig.defaultHomePage = it }
+                    )
+                }
+
+                SplicedColumnGroup(title = stringResource(R.string.eye_protection)) {
+                    var eyeProtectionEnabled by remember {
+                        mutableStateOf(ThemeConfig.eyeProtectionEnabled)
+                    }
+                    var colorTemperature by remember {
+                        mutableIntStateOf(ThemeConfig.colorTemperature)
+                    }
+                    var eyeProtectionSchedule by remember {
+                        mutableStateOf(ThemeConfig.eyeProtectionSchedule)
+                    }
+                    var eyeProtectionStartTime by remember {
+                        mutableStateOf(ThemeConfig.eyeProtectionStartTime)
+                    }
+                    var eyeProtectionEndTime by remember {
+                        mutableStateOf(ThemeConfig.eyeProtectionEndTime)
+                    }
+
+                    SwitchSettingItem(
+                        title = stringResource(R.string.eye_protection_enabled),
+                        description = stringResource(R.string.eye_protection_enabled_summary),
+                        checked = eyeProtectionEnabled,
+                        onCheckedChange = {
+                            eyeProtectionEnabled = it
+                            ThemeConfig.eyeProtectionEnabled = it
+                        }
+                    )
+
+                    AnimatedVisibility(visible = eyeProtectionEnabled) {
+                        Column {
+                            SliderSettingItem(
+                                title = stringResource(R.string.color_temperature),
+                                description = stringResource(
+                                    R.string.color_temperature_summary,
+                                    colorTemperature
+                                ),
+                                value = colorTemperature.toFloat(),
+                                defaultValue = 50f,
+                                valueRange = 0f..100f,
+                                steps = 99,
+                                onValueChange = {
+                                    colorTemperature = it.toInt()
+                                    ThemeConfig.colorTemperature = it.toInt()
+                                }
+                            )
+
+                            SwitchSettingItem(
+                                title = stringResource(R.string.eye_protection_schedule),
+                                description = stringResource(R.string.eye_protection_schedule_summary),
+                                checked = eyeProtectionSchedule,
+                                onCheckedChange = {
+                                    eyeProtectionSchedule = it
+                                    ThemeConfig.eyeProtectionSchedule = it
+                                }
+                            )
+
+                            AnimatedVisibility(visible = eyeProtectionSchedule) {
+                                Column {
+                                    ClickableSettingItem(
+                                        title = stringResource(R.string.eye_protection_start_time),
+                                        option = eyeProtectionStartTime,
+                                        onClick = {
+                                            val parts = eyeProtectionStartTime.split(":")
+                                            val hour = parts.getOrNull(0)?.toIntOrNull() ?: 22
+                                            val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                                            android.app.TimePickerDialog(
+                                                context,
+                                                { _, h, m ->
+                                                    val timeStr = String.format(
+                                                        java.util.Locale.US,
+                                                        "%02d:%02d",
+                                                        h.coerceIn(0, 23),
+                                                        m.coerceIn(0, 59)
+                                                    )
+                                                    eyeProtectionStartTime = timeStr
+                                                    ThemeConfig.eyeProtectionStartTime = timeStr
+                                                },
+                                                hour.coerceIn(0, 23),
+                                                minute.coerceIn(0, 59),
+                                                true
+                                            ).show()
+                                        }
+                                    )
+                                    ClickableSettingItem(
+                                        title = stringResource(R.string.eye_protection_end_time),
+                                        option = eyeProtectionEndTime,
+                                        onClick = {
+                                            val parts = eyeProtectionEndTime.split(":")
+                                            val hour = parts.getOrNull(0)?.toIntOrNull() ?: 7
+                                            val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                                            android.app.TimePickerDialog(
+                                                context,
+                                                { _, h, m ->
+                                                    val timeStr = String.format(
+                                                        java.util.Locale.US,
+                                                        "%02d:%02d",
+                                                        h.coerceIn(0, 23),
+                                                        m.coerceIn(0, 59)
+                                                    )
+                                                    eyeProtectionEndTime = timeStr
+                                                    ThemeConfig.eyeProtectionEndTime = timeStr
+                                                },
+                                                hour.coerceIn(0, 23),
+                                                minute.coerceIn(0, 59),
+                                                true
+                                            ).show()
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                SplicedColumnGroup(title = stringResource(R.string.compose_related)) {
+                    if (!isMiuixEngine) {
+                        SwitchSettingItem(
+                            title = stringResource(R.string.pure_black),
+                            checked = ThemeConfig.isPureBlack,
+                            onCheckedChange = { ThemeConfig.isPureBlack = it }
+                        )
+                        SwitchSettingItem(
+                            title = stringResource(R.string.use_flexible_top_bar),
+                            checked = ThemeConfig.useFlexibleTopAppBar,
+                            onCheckedChange = { ThemeConfig.useFlexibleTopAppBar = it }
+                        )
+                    }
+                    SwitchSettingItem(
+                        title = stringResource(R.string.is_blur_enable),
+                        checked = ThemeConfig.enableBlur,
+                        onCheckedChange = {
+                            ThemeConfig.enableBlur = it
+                            if (!it) ThemeConfig.enableProgressiveBlur = false
+                        }
+                    )
+                    AnimatedVisibility(visible = ThemeConfig.enableBlur) {
+                        SwitchSettingItem(
+                            title = stringResource(R.string.is_blur_progressive_enable),
+                            checked = ThemeConfig.enableProgressiveBlur,
+                            onCheckedChange = { ThemeConfig.enableProgressiveBlur = it }
+                        )
+                    }
+                    if (ThemeConfig.enableBlur) {
+                        SliderSettingItem(
+                            title = stringResource(R.string.theme_manage_top_bar_blur_radius),
+                            description = stringResource(R.string.theme_config_blur_radius_performance_summary),
+                            value = ThemeConfig.topBarBlurRadius.toFloat(),
+                            defaultValue = 24f,
+                            valueRange = 0f..30f,
+                            onValueChange = { ThemeConfig.topBarBlurRadius = it.toInt() }
+                        )
+                        SliderSettingItem(
+                            title = stringResource(R.string.theme_manage_bottom_bar_blur_radius),
+                            description = stringResource(R.string.theme_config_blur_radius_performance_summary),
+                            value = ThemeConfig.bottomBarBlurRadius.toFloat(),
+                            defaultValue = 8f,
+                            valueRange = 0f..10f,
+                            onValueChange = { ThemeConfig.bottomBarBlurRadius = it.toInt() }
+                        )
+                        SliderSettingItem(
+                            title = stringResource(R.string.theme_manage_top_bar_blur_opacity),
+                            value = ThemeConfig.topBarBlurAlpha.toFloat(),
+                            defaultValue = 73f,
+                            valueRange = 0f..100f,
+                            onValueChange = { ThemeConfig.topBarBlurAlpha = it.toInt() }
+                        )
+                        SliderSettingItem(
+                            title = stringResource(R.string.theme_manage_bottom_bar_blur_opacity),
+                            value = ThemeConfig.bottomBarBlurAlpha.toFloat(),
+                            defaultValue = 40f,
+                            valueRange = 0f..100f,
+                            onValueChange = { ThemeConfig.bottomBarBlurAlpha = it.toInt() }
+                        )
+                    }
+                    AnimatedVisibility(visible = !isMiuixEngine && !ThemeConfig.enableBlur) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            SliderSettingItem(
+                                title = stringResource(R.string.top_bar_opacity),
+                                description = stringResource(
+                                    R.string.top_bar_opacity_summary,
+                                    ThemeConfig.topBarOpacity
+                                ),
+                                value = ThemeConfig.topBarOpacity.toFloat(),
+                                defaultValue = 100f,
+                                valueRange = 0f..100f,
+                                steps = 99,
+                                onValueChange = { ThemeConfig.topBarOpacity = it.toInt() }
+                            )
+                            SliderSettingItem(
+                                title = stringResource(R.string.bottom_bar_opacity),
+                                description = stringResource(
+                                    R.string.bottom_bar_opacity_summary,
+                                    ThemeConfig.bottomBarOpacity
+                                ),
+                                value = ThemeConfig.bottomBarOpacity.toFloat(),
+                                defaultValue = 100f,
+                                valueRange = 0f..100f,
+                                steps = 99,
+                                onValueChange = { ThemeConfig.bottomBarOpacity = it.toInt() }
+                            )
+                        }
+                    }
+                    if (!isMiuixEngine) {
+                        SliderSettingItem(
+                            title = stringResource(R.string.container_opacity),
+                            description = stringResource(
+                                R.string.container_opacity_summary,
+                                ThemeConfig.containerOpacity
+                            ),
+                            value = ThemeConfig.containerOpacity.toFloat(),
+                            defaultValue = 100f,
+                            valueRange = 0f..100f,
+                            steps = 99,
+                            onValueChange = { ThemeConfig.containerOpacity = it.toInt() }
+                        )
+                    }
+                }
+
+                SplicedColumnGroup(title = stringResource(R.string.day)) {
+                    val hasLightBg = !ThemeConfig.bgImageLight.isNullOrBlank()
+                    ClickableSettingItem(
+                        title = stringResource(R.string.background_image),
+                        description = if (hasLightBg) stringResource(R.string.click_to_delete) else stringResource(
+                            R.string.select_image
+                        ),
+                        onClick = { manageKey = false }
+                    )
+
+                    if (hasLightBg) {
+                        SliderSettingItem(
+                            title = stringResource(R.string.background_image_blurring),
+                            value = ThemeConfig.bgImageBlurring.toFloat(),
+                            defaultValue = 0f,
+                            valueRange = 0f..100f,
+                            steps = 99,
+                            onValueChange = {
+                                ThemeConfig.bgImageBlurring = it.toInt()
+                            }
+                        )
+                    }
+                }
 
                 SplicedColumnGroup(title = stringResource(R.string.night)) {
-                val hasDarkBg = !ThemeConfig.bgImageDark.isNullOrBlank()
-                ClickableSettingItem(
-                    title = stringResource(R.string.background_image),
-                    description = if (hasDarkBg) stringResource(R.string.click_to_delete) else stringResource(
-                        R.string.select_image
-                    ),
-                    onClick = { manageKey = true }
-                )
+                    val hasDarkBg = !ThemeConfig.bgImageDark.isNullOrBlank()
+                    ClickableSettingItem(
+                        title = stringResource(R.string.background_image),
+                        description = if (hasDarkBg) stringResource(R.string.click_to_delete) else stringResource(
+                            R.string.select_image
+                        ),
+                        onClick = { manageKey = true }
+                    )
 
-                if (hasDarkBg) {
-                    SliderSettingItem(
-                        title = stringResource(R.string.background_image_blurring),
-                        value = ThemeConfig.bgImageNBlurring.toFloat(),
-                        defaultValue = 0f,
-                        valueRange = 0f..100f,
-                        steps = 99,
-                        onValueChange = {
-                            ThemeConfig.bgImageNBlurring = it.toInt()
-                        }
+                    if (hasDarkBg) {
+                        SliderSettingItem(
+                            title = stringResource(R.string.background_image_blurring),
+                            value = ThemeConfig.bgImageNBlurring.toFloat(),
+                            defaultValue = 0f,
+                            valueRange = 0f..100f,
+                            steps = 99,
+                            onValueChange = {
+                                ThemeConfig.bgImageNBlurring = it.toInt()
+                            }
+                        )
+                    }
+                }
+            }
+
+            // Container settings
+            item {
+                SplicedColumnGroup(title = stringResource(R.string.theme_manage_section_container)) {
+                    SwitchSettingItem(
+                        title = stringResource(R.string.show_divider_line),
+                        checked = ThemeConfig.enableItemDivider,
+                        onCheckedChange = { ThemeConfig.enableItemDivider = it }
+                    )
+                    if (ThemeConfig.enableItemDivider) {
+                        SliderSettingItem(
+                            title = stringResource(R.string.theme_config_divider_width),
+                            description = "${ThemeConfig.itemDividerWidth}dp",
+                            value = ThemeConfig.itemDividerWidth,
+                            defaultValue = 1f,
+                            valueRange = 0f..5f,
+                            steps = 49,
+                            onValueChange = { ThemeConfig.itemDividerWidth = it }
+                        )
+                        SliderSettingItem(
+                            title = stringResource(R.string.theme_config_divider_length),
+                            description = "${ThemeConfig.itemDividerLength.toInt()}%",
+                            value = ThemeConfig.itemDividerLength,
+                            defaultValue = 80f,
+                            valueRange = 30f..100f,
+                            steps = 14,
+                            onValueChange = { ThemeConfig.itemDividerLength = it }
+                        )
+                        ClickableSettingItem(
+                            title = stringResource(R.string.tip_divider_color),
+                            option = if (ThemeConfig.itemDividerColor != 0) "#${Integer.toHexString(ThemeConfig.itemDividerColor).uppercase()}" else stringResource(R.string.click_to_select),
+                            onClick = {
+                                showBorderColorPicker = true
+                            },
+                            trailingContent = {
+                                if (ThemeConfig.itemDividerColor != 0) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(ThemeConfig.itemDividerColor))
+                                            .border(
+                                                1.dp,
+                                                MaterialTheme.colorScheme.outlineVariant,
+                                                CircleShape
+                                            )
+                                    )
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+
+            // Nav icon settings
+            item {
+                SplicedColumnGroup(title = stringResource(R.string.theme_config_nav_icon_settings)) {
+                    val customCount = listOf(
+                        ThemeConfig.navIconHome,
+                        ThemeConfig.navIconBookshelf,
+                        ThemeConfig.navIconExplore,
+                        ThemeConfig.navIconRss,
+                        ThemeConfig.navIconMy
+                    ).count { it.isNotEmpty() }
+                    ClickableSettingItem(
+                        title = stringResource(R.string.theme_config_nav_icons),
+                        description = if (customCount > 0) {
+                            stringResource(R.string.theme_config_nav_icons_custom_count, customCount)
+                        } else {
+                            stringResource(R.string.theme_config_nav_icons_default)
+                        },
+                        onClick = { showNavIconSheet = true }
                     )
                 }
+            }
+
+            // Theme management
+            item {
+                SplicedColumnGroup(title = stringResource(R.string.theme_pack)) {
+                    ClickableSettingItem(
+                        title = stringResource(R.string.theme_pack),
+                        description = stringResource(R.string.theme_pack_s),
+                        onClick = onNavigateToThemeManage
+                    )
                 }
             }
         }
@@ -602,42 +837,16 @@ fun ThemeConfigScreen(
     )
 
 
-    manageKey?.let { isDark ->
-        BackgroundImageManageSheet(
-            show = true,
-            isDarkTheme = isDark,
-            onDismissRequest = { manageKey = null }
-        )
-    }
-
-
-    ColorPickerSheet(
-        show = showColorPicker,
-        initialColor = if (pickNightSeedColor) {
-            nightPrimaryColorValue.value
-        } else {
-            primaryColorValue.value
-        },
-        onDismissRequest = { showColorPicker = false },
-        onColorSelected = { color ->
-            if (pickNightSeedColor) {
-                nightPrimaryColorValue.value = color
-                ThemeConfig.cNPrimary = color
-            } else {
-                primaryColorValue.value = color
-                ThemeConfig.cPrimary = color
-                ThemeStore.editTheme(context)
-                    .primaryColor(color)
-                    .apply()
-                DynamicColors.applyToActivitiesIfAvailable(
-                    context.applicationContext as android.app.Application,
-                    DynamicColorsOptions.Builder()
-                        .setContentBasedSource(context.primaryColor)
-                        .build()
-                )
-            }
-        }
+    BackgroundImageManageSheet(
+        isDarkTheme = manageKey,
+        onDismissRequest = { manageKey = null }
     )
+
+    NavIconManageSheet(
+        show = showNavIconSheet,
+        onDismissRequest = { showNavIconSheet = false }
+    )
+
 
     LauncherIconPickerSheet(
         show = showLauncherIconPicker,
@@ -649,36 +858,41 @@ fun ThemeConfigScreen(
         }
     )
 
-    ThemeListDialog(
-        show = showThemeListDialog,
-        onDismissRequest = { showThemeListDialog = false }
+    ColorPickerSheet(
+        show = showBorderColorPicker,
+        initialColor = ThemeConfig.itemDividerColor,
+        onDismissRequest = { showBorderColorPicker = false },
+        onColorSelected = {
+            ThemeConfig.itemDividerColor = it
+            showBorderColorPicker = false
+        }
     )
 
-    AppAlertDialog(
-        data = saveThemeKey,
-        onDismissRequest = { saveThemeKey = null },
-        title = stringResource(R.string.theme_name),
-        content = {
-            AppTextField(
-                value = themeName,
-                onValueChange = { themeName = it },
-                label = "name",
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                backgroundColor = LegadoTheme.colorScheme.surface
+    FontSelectSheet(
+        show = showFontSheet,
+        title = stringResource(R.string.font_setting),
+        fontFolderUri = fontFolderUri,
+        selectedFontPath = ThemeConfig.appFontPath,
+        onDismissRequest = { showFontSheet = false },
+        onSelectFont = { doc ->
+            ThemeConfig.appFontPath = doc.uri.toString()
+        },
+        onOpenFolderPicker = { fontFolderLauncher.launch(null) },
+        startAction = {
+            SmallPlainButton(
+                icon = Icons.Default.Delete,
+                contentDescription = stringResource(R.string.clear),
+                onClick = {
+                    ThemeConfig.appFontPath = null
+                    showFontSheet = false
+                }
             )
         },
-        confirmText = stringResource(android.R.string.ok),
-        onConfirm = { key ->
-            when (key) {
-                "saveDayTheme" -> OldThemeConfig.saveDayTheme(context, themeName)
-                "saveNightTheme" -> OldThemeConfig.saveNightTheme(context, themeName)
-            }
-            saveThemeKey = null
-        },
-        dismissText = stringResource(android.R.string.cancel),
-        onDismiss = { saveThemeKey = null }
+        folderIcon = Icons.Default.Add,
+        folderContentDescription = stringResource(R.string.select_folder),
+        emptyText = stringResource(R.string.theme_config_no_font_files),
     )
+
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -726,7 +940,11 @@ fun ThemeModeSelector(
 
                 Spacer(Modifier.size(ToggleButtonDefaults.IconSpacing))
 
-                Text(text = label)
+                Text(
+                    text = label,
+                    overflow = TextOverflow.Ellipsis,
+                    maxLines = 1
+                )
             }
         }
     }
@@ -961,27 +1179,6 @@ fun ThemeCard(
     }
 }
 
-private fun formatColorOption(colorValue: Int): String? {
-    if (colorValue == 0) return null
-    return "#${Integer.toHexString(colorValue).uppercase()}"
-}
-
-@Composable
-private fun ColorSwatch(colorValue: Int) {
-    if (colorValue == 0) return
-    Box(
-        modifier = Modifier
-            .size(28.dp)
-            .clip(CircleShape)
-            .background(Color(colorValue))
-            .border(
-                1.dp,
-                MaterialTheme.colorScheme.outlineVariant,
-                CircleShape
-            )
-    )
-}
-
 data class ThemeColorPalette(
     val primary: Color,
     val secondary: Color,
@@ -1065,3 +1262,4 @@ private fun getThemeColors(
         onSurfaceVariant = colorScheme.onSurfaceVariant
     )
 }
+

@@ -1,14 +1,15 @@
 package io.legado.app.ui.config.otherConfig
 
-import io.legado.app.BuildConfig
 import io.legado.app.constant.PreferKey
+import io.legado.app.ui.config.downloadCacheConfig.DownloadCacheConfig
 import io.legado.app.ui.config.prefDelegate
 
 object OtherConfig {
 
     var language by prefDelegate(
         PreferKey.language,
-        "auto"
+        "auto",
+        sync = true
     )
 
     var updateToVariant by prefDelegate(
@@ -56,39 +57,9 @@ object OtherConfig {
         false
     )
 
-    var bitmapCacheSize by prefDelegate(
-        PreferKey.bitmapCacheSize,
-        50
-    )
-
-    var imageRetainNum by prefDelegate(
-        PreferKey.imageRetainNum,
-        0
-    )
-
-    var preDownloadNum by prefDelegate(
-        PreferKey.preDownloadNum,
-        10
-    )
-
     var replaceEnableDefault by prefDelegate(
         PreferKey.replaceEnableDefault,
         true
-    )
-
-    var mediaButtonOnExit by prefDelegate(
-        PreferKey.mediaButtonOnExit,
-        true
-    )
-
-    var readAloudByMediaButton by prefDelegate(
-        PreferKey.readAloudByMediaButton,
-        false
-    )
-
-    var ignoreAudioFocus by prefDelegate(
-        PreferKey.ignoreAudioFocus,
-        false
     )
 
     var autoClearExpired by prefDelegate(
@@ -101,32 +72,16 @@ object OtherConfig {
         true
     )
 
-    var showMangaUi by prefDelegate(
-        PreferKey.showMangaUi,
-        true
-    )
-
-    var sharedElementEnterTransitionEnable by prefDelegate(
-        PreferKey.sharedElementEnterTransitionEnable,
-        false
-    )
-
-    var delayBookLoadEnable by prefDelegate(
-        PreferKey.delayBookLoadEnable,
-        true
-    )
-
-    private var _userAgent by prefDelegate(
-        PreferKey.userAgent,
-        ""
-    )
-
     var userAgent: String
-        get() = _userAgent.ifBlank {
-            defaultUserAgent
-        }
+        get() = DownloadCacheConfig.userAgent
         set(value) {
-            _userAgent = value
+            DownloadCacheConfig.userAgent = value
+        }
+
+    var cronetEnable: Boolean
+        get() = DownloadCacheConfig.cronetEnable
+        set(value) {
+            DownloadCacheConfig.cronetEnable = value
         }
 
     var webServiceWakeLock by prefDelegate(
@@ -145,25 +100,40 @@ object OtherConfig {
             _sourceEditMaxLine = value
         }
 
-    var cronetEnable by prefDelegate(
-        PreferKey.cronet,
-        false
-    )
-
     var webPort by prefDelegate(
         PreferKey.webPort,
         1122
     )
 
-    var threadCount by prefDelegate(
-        PreferKey.threadCount,
-        16
-    )
+    var threadCount: Int
+        get() = DownloadCacheConfig.threadCount
+        set(value) {
+            DownloadCacheConfig.threadCount = value
+        }
 
-    var cacheBookThreadCount by prefDelegate(
-        PreferKey.cacheBookThreadCount,
-        16
-    )
+    var cacheBookThreadCount: Int
+        get() = DownloadCacheConfig.cacheBookThreadCount
+        set(value) {
+            DownloadCacheConfig.cacheBookThreadCount = value
+        }
+
+    var preDownloadNum: Int
+        get() = DownloadCacheConfig.preDownloadNum
+        set(value) {
+            DownloadCacheConfig.preDownloadNum = value
+        }
+
+    var bitmapCacheSize: Int
+        get() = DownloadCacheConfig.bitmapCacheSize
+        set(value) {
+            DownloadCacheConfig.bitmapCacheSize = value
+        }
+
+    var imageRetainNum: Int
+        get() = DownloadCacheConfig.imageRetainNum
+        set(value) {
+            DownloadCacheConfig.imageRetainNum = value
+        }
 
     var processText by prefDelegate(
         PreferKey.processText,
@@ -179,10 +149,5 @@ object OtherConfig {
         PreferKey.recordHeapDump,
         false
     )
-
-    private val defaultUserAgent: String
-        get() = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-                "AppleWebKit/537.36 (KHTML, like Gecko) " +
-                "Chrome/${BuildConfig.Cronet_Main_Version} Safari/537.36"
 
 }

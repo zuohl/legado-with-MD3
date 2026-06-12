@@ -5,18 +5,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,20 +27,18 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import io.legado.app.R
 import io.legado.app.ui.theme.LegadoTheme
-import io.legado.app.ui.widget.components.button.SmallTonalIconButton
+import io.legado.app.ui.widget.components.button.series.SmallTonalButton
 import io.legado.app.ui.widget.components.card.NormalCard
 import io.legado.app.ui.widget.components.filePicker.FilePickerSheet
 import io.legado.app.ui.widget.components.icon.AppIcon
 import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
-import io.legado.app.ui.widget.components.text.AppText
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BackgroundImageManageSheet(
-    show: Boolean,
-    isDarkTheme: Boolean,
+    isDarkTheme: Boolean?,
     onDismissRequest: () -> Unit,
     viewModel: ThemeConfigViewModel = koinViewModel()
 ) {
@@ -57,23 +51,23 @@ fun BackgroundImageManageSheet(
                 scope.launch {
                     viewModel.setBackgroundFromUri(
                         uri = it,
-                        isDarkTheme = isDarkTheme
+                        isDarkTheme = isDarkTheme == true
                     )
                 }
             }
         }
 
-    val currentPath = if (isDarkTheme) {
-        ThemeConfig.bgImageDark
-    } else {
-        ThemeConfig.bgImageLight
-    }
-
     AppModalBottomSheet(
-        show = show,
+        data = isDarkTheme,
         onDismissRequest = onDismissRequest,
         title = stringResource(R.string.background_image),
-    ) {
+    ) { isDark ->
+        val currentPath = if (isDark) {
+            ThemeConfig.bgImageDark
+        } else {
+            ThemeConfig.bgImageLight
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -90,10 +84,13 @@ fun BackgroundImageManageSheet(
                         .aspectRatio(16f / 9f)
                         .padding(16.dp)
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
                         AppIcon(
                             imageVector = Icons.Default.Add,
-                            contentDescription = "Add",
+                            contentDescription = stringResource(R.string.add),
                             modifier = Modifier.size(48.dp),
                             tint = LegadoTheme.colorScheme.primary
                         )
@@ -117,13 +114,13 @@ fun BackgroundImageManageSheet(
                             contentScale = ContentScale.Crop
                         )
                     }
-                    SmallTonalIconButton(
-                        onClick = { viewModel.removeBackground(isDarkTheme) },
+                    SmallTonalButton(
+                        onClick = { viewModel.removeBackground(isDark) },
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(8.dp)
                             .size(32.dp),
-                        imageVector = Icons.Default.Close
+                        icon = Icons.Default.Close
                     )
                 }
             }

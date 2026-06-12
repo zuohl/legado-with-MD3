@@ -9,6 +9,7 @@ plugins {
     alias(libs.plugins.room)
     alias(libs.plugins.ksp)
     alias(libs.plugins.google.services)
+    alias(libs.plugins.baselineprofile)
 }
 
 apply(from = "download.gradle")
@@ -168,6 +169,8 @@ ksp {
 }
 
 dependencies {
+    implementation(libs.androidx.profileinstaller)
+    "baselineProfile"(project(":baselineprofile"))
     coreLibraryDesugaring(libs.desugar)
     testImplementation(libs.junit)
     androidTestImplementation(libs.bundles.androidTest)
@@ -215,8 +218,12 @@ dependencies {
     implementation(libs.androidsvg)
     implementation(libs.glide.svg)
     implementation(libs.glide.recyclerview)
-    implementation(libs.nanohttpd.nanohttpd)
-    implementation(libs.nanohttpd.websocket)
+    implementation(libs.ktor.server.core)
+    implementation(libs.ktor.server.cio)
+    implementation(libs.ktor.server.content.negotiation)
+    implementation(libs.ktor.serialization.gson)
+    implementation(libs.ktor.server.cors)
+    implementation(libs.ktor.server.websockets)
     implementation(libs.zxing.lite)
     implementation(libs.colorpicker)
     implementation(libs.colorpicker.compose)
@@ -226,6 +233,7 @@ dependencies {
     implementation(libs.markwon.image.glide)
     implementation(libs.markwon.ext.tables)
     implementation(libs.markwon.html)
+    implementation(libs.markdown.renderer.m3)
     implementation(libs.quick.chinese.transfer.core)
     implementation(libs.hutool.crypto)
     //noinspection GradleDependency
@@ -273,10 +281,10 @@ dependencies {
     implementation(libs.miuix.ui.android)
     implementation(libs.miuix.preference.android)
     implementation(libs.miuix.icons.android)
-    //implementation(libs.miuix.blur.android)
+    implementation(libs.miuix.blur.android)
     implementation(libs.miuix.core)
-    implementation(libs.miuix.shapes.android)
     implementation(libs.capsule)
     implementation(libs.backdrop)
+    implementation(libs.lyricViewx)
     implementation(libs.timber)
 }
