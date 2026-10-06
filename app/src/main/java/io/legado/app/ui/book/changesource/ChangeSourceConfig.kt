@@ -1,90 +1,26 @@
 package io.legado.app.ui.book.changesource
 
-import io.legado.app.constant.PreferKey
-import io.legado.app.domain.usecase.ChangeSourceMigrationOptions
-import io.legado.app.ui.config.prefDelegate
+import io.legado.app.domain.gateway.ChangeSourceSettingsGateway
+import org.koin.core.context.GlobalContext
 
+@Deprecated("使用 ChangeSourceSettingsGateway.currentSettings 读取，通过 update() 写入")
 object ChangeSourceConfig {
+    private val settings
+        get() = GlobalContext.get().get<ChangeSourceSettingsGateway>().currentSettings
 
-    var searchScope by prefDelegate(
-        key = "changeSourceSearchScope",
-        defaultValue = ""
-    )
+    val searchScope get() = settings.searchScope
+    val checkAuthor get() = settings.checkAuthor
+    val loadInfo get() = settings.loadInfo
+    val loadToc get() = settings.loadToc
+    val loadWordCount get() = settings.loadWordCount
+    val migrateChapters get() = settings.migrateChapters
+    val migrateReadingProgress get() = settings.migrateReadingProgress
+    val migrateGroup get() = settings.migrateGroup
+    val migrateCover get() = settings.migrateCover
+    val migrateCategory get() = settings.migrateCategory
+    val migrateRemark get() = settings.migrateRemark
+    val migrateReadConfig get() = settings.migrateReadConfig
+    val deleteDownloadedChapters get() = settings.deleteDownloadedChapters
 
-    var checkAuthor by prefDelegate(
-        key = PreferKey.changeSourceCheckAuthor,
-        defaultValue = false
-    )
-
-    var loadInfo by prefDelegate(
-        key = PreferKey.changeSourceLoadInfo,
-        defaultValue = false
-    )
-
-    var loadToc by prefDelegate(
-        key = PreferKey.changeSourceLoadToc,
-        defaultValue = false
-    )
-
-    var loadWordCount by prefDelegate(
-        key = PreferKey.changeSourceLoadWordCount,
-        defaultValue = false
-    )
-
-    var migrateChapters by prefDelegate(
-        key = "migrateChapters",
-        defaultValue = true
-    )
-    var migrateReadingProgress by prefDelegate(
-        key = "migrateReadingProgress",
-        defaultValue = true
-    )
-    var migrateGroup by prefDelegate(
-        key = "migrateGroup",
-        defaultValue = true
-    )
-    var migrateCover by prefDelegate(
-        key = "migrateCover",
-        defaultValue = true
-    )
-    var migrateCategory by prefDelegate(
-        key = "migrateCategory",
-        defaultValue = true
-    )
-    var migrateRemark by prefDelegate(
-        key = "migrateRemark",
-        defaultValue = true
-    )
-    var migrateReadConfig by prefDelegate(
-        key = "migrateReadConfig",
-        defaultValue = true
-    )
-    var deleteDownloadedChapters by prefDelegate(
-        key = "deleteDownloadedChapters",
-        defaultValue = false
-    )
-
-    fun getMigrationOptions(): ChangeSourceMigrationOptions {
-        return ChangeSourceMigrationOptions(
-            migrateChapters = migrateChapters,
-            migrateReadingProgress = migrateReadingProgress,
-            migrateGroup = migrateGroup,
-            migrateCover = migrateCover,
-            migrateCategory = migrateCategory,
-            migrateRemark = migrateRemark,
-            migrateReadConfig = migrateReadConfig,
-            deleteDownloadedChapters = deleteDownloadedChapters,
-        )
-    }
-
-    fun setMigrationOptions(options: ChangeSourceMigrationOptions) {
-        migrateChapters = options.migrateChapters
-        migrateReadingProgress = options.migrateReadingProgress
-        migrateGroup = options.migrateGroup
-        migrateCover = options.migrateCover
-        migrateCategory = options.migrateCategory
-        migrateRemark = options.migrateRemark
-        migrateReadConfig = options.migrateReadConfig
-        deleteDownloadedChapters = options.deleteDownloadedChapters
-    }
+    fun getMigrationOptions() = settings.migrationOptions()
 }

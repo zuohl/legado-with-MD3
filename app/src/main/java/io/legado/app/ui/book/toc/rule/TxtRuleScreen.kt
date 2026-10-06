@@ -14,10 +14,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +41,7 @@ import io.legado.app.ui.widget.components.button.series.SmallPlainButton
 import io.legado.app.ui.widget.components.card.ReorderableSelectionItem
 import io.legado.app.ui.widget.components.filePicker.FilePickerSheet
 import io.legado.app.ui.widget.components.icon.AppIcons
+import io.legado.app.ui.widget.components.importComponents.BaseImportUiState
 import io.legado.app.ui.widget.components.importComponents.BatchImportDialog
 import io.legado.app.ui.widget.components.importComponents.SourceInputDialog
 import io.legado.app.ui.widget.components.lazylist.FastScrollLazyColumn
@@ -50,23 +49,56 @@ import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
 import io.legado.app.ui.widget.components.rules.RuleEditFields
 import io.legado.app.ui.widget.components.rules.RuleEditSheet
 import io.legado.app.ui.widget.components.rules.RuleListScaffold
+import io.legado.app.ui.widget.components.rules.TestLineResult
+import io.legado.app.utils.toastOnUi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import org.koin.androidx.compose.koinViewModel
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun TxtRuleScreen(
+fun TxtRuleRouteScreen(
     viewModel: TxtTocRuleViewModel = koinViewModel(),
+    initialRule: String? = null,
+    onPickRule: ((String) -> Unit)? = null,
+    onBackClick: () -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val importState by viewModel.importState.collectAsStateWithLifecycle()
+
+    TxtRuleScreen(
+        state = uiState,
+        importState = importState,
+        events = viewModel.events,
+        effects = viewModel.effects,
+        onIntent = viewModel::onIntent,
+        onPasteRule = viewModel::pasteRule,
+        initialRule = initialRule,
+        onPickRule = onPickRule,
+        onBackClick = onBackClick,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun TxtRuleScreen(
+    state: TxtTocRuleUiState,
+    importState: BaseImportUiState<TxtTocRule>,
+    events: Flow<BaseRuleEvent>,
+    effects: Flow<TxtTocRuleEffect>,
+    onIntent: (TxtTocRuleIntent) -> Unit,
+    onPasteRule: () -> TxtTocRule?,
     initialRule: String? = null,
     onPickRule: ((String) -> Unit)? = null,
     onBackClick: () -> Unit
 ) {
 
     val context = LocalContext.current
-    val uiState by viewModel.uiState.collectAsState()
 
-    val rules = uiState.items
-    val selectedIds = uiState.selectedIds
+    val rules = state.items
+    val selectedIds = state.selectedIds
     val isPickMode = onPickRule != null
     val inSelectionMode = if (isPickMode) false else selectedIds.isNotEmpty()
 
@@ -82,17 +114,15 @@ fun TxtRuleScreen(
     var showExportSheet by remember { mutableStateOf(false) }
 
     val reorderableState = rememberReorderableLazyListState(listState) { from, to ->
-        viewModel.moveItemInList(from.index, to.index)
+        onIntent(TxtTocRuleIntent.MoveItem(from.index, to.index))
         hapticFeedback.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
     }
 
     val clipboardManager = LocalClipboard.current
     val snackbarHostState = remember { SnackbarHostState() }
-    val importState by viewModel.importState.collectAsStateWithLifecycle()
-    val sheetState = rememberModalBottomSheetState()
 
     LaunchedEffect(Unit) {
-        viewModel.events.collect { event ->
+        events.collect { event ->
             when (event) {
                 is BaseRuleEvent.ShowSnackbar -> {
                     val result = snackbarHostState.showSnackbar(
@@ -115,13 +145,21 @@ fun TxtRuleScreen(
         }
     }
 
+    LaunchedEffect(effects) {
+        effects.collect { effect ->
+            when (effect) {
+                is TxtTocRuleEffect.ShowMessage -> snackbarHostState.showSnackbar(effect.message)
+            }
+        }
+    }
+
     val importDoc = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
         onResult = { uri ->
             uri?.let {
                 context.contentResolver.openInputStream(it)?.use { stream ->
                     val text = stream.reader().readText()
-                    viewModel.importSource(text)
+                    onIntent(TxtTocRuleIntent.ImportSource(text))
                 }
             }
         }
@@ -130,7 +168,7 @@ fun TxtRuleScreen(
     val exportDoc = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json"),
         onResult = { uri ->
-            uri?.let { viewModel.exportToUri(it, rules, selectedIds) }
+            uri?.let { onIntent(TxtTocRuleIntent.ExportSelection(it)) }
         }
     )
 
@@ -140,7 +178,7 @@ fun TxtRuleScreen(
         onDismissRequest = { showUrlInput = false },
         onConfirm = {
             showUrlInput = false
-            viewModel.importSource(it)
+            onIntent(TxtTocRuleIntent.ImportSource(it))
         }
     )
 
@@ -154,7 +192,7 @@ fun TxtRuleScreen(
         },
         onUpload = {
             showExportSheet = false
-            viewModel.uploadSelectedRules(selectedIds, rules)
+            onIntent(TxtTocRuleIntent.UploadSelection)
         },
         allowExtensions = arrayOf("json")
     )
@@ -178,20 +216,20 @@ fun TxtRuleScreen(
     BatchImportDialog(
         title = stringResource(R.string.import_txt_toc_rule),
         importState = importState,
-        onDismissRequest = { viewModel.cancelImport() },
-        onToggleItem = { viewModel.toggleImportSelection(it) },
-        onToggleAll = { viewModel.toggleImportAll(it) },
-        onUpdateItem = { index, rule -> viewModel.updateImportItem(index, rule) },
-        onConfirm = { viewModel.saveImportedRules() },
+        onDismissRequest = { onIntent(TxtTocRuleIntent.CancelImport) },
+        onToggleItem = { onIntent(TxtTocRuleIntent.ToggleImportSelection(it)) },
+        onToggleAll = { onIntent(TxtTocRuleIntent.ToggleImportAll(it)) },
+        onUpdateItem = { index, rule -> onIntent(TxtTocRuleIntent.UpdateImportItem(index, rule)) },
+        onConfirm = { onIntent(TxtTocRuleIntent.SaveImportedRules) },
         itemTitle = { rule -> rule.name },
         itemSubtitle = { rule ->
-            rule.rule.takeIf { it.isNotBlank() }
+            rule.chapterRule.takeIf { it.isNotBlank() }
         }
     )
 
     LaunchedEffect(reorderableState.isAnyItemDragging) {
         if (!reorderableState.isAnyItemDragging) {
-            viewModel.saveSortOrder()
+            onIntent(TxtTocRuleIntent.SaveSortOrder)
         }
     }
 
@@ -202,7 +240,7 @@ fun TxtRuleScreen(
         text = stringResource(R.string.sure_del),
         confirmText = stringResource(R.string.ok),
         onConfirm = { rule ->
-            viewModel.delete(rule)
+            onIntent(TxtTocRuleIntent.DeleteRule(rule))
             showDeleteRuleDialog = null
         },
         dismissText = stringResource(R.string.cancel),
@@ -213,42 +251,83 @@ fun TxtRuleScreen(
         show = showEditSheet,
         rule = editingRule,
         title = stringResource(R.string.txt_toc_rule),
-        label1 = stringResource(R.string.regex),
+        label1 = stringResource(R.string.chapter_rule),
         label2 = stringResource(R.string.example),
+        label3 = stringResource(R.string.volume_rule),
         onDismissRequest = {
             showEditSheet = false
             editingRule = null
         },
         onSave = { updatedRule ->
-            //TODO：我很想把他改为自增主键，但为了兼容性日后再�?
-            if (editingRule == null) {
-                viewModel.insert(updatedRule)
-            } else {
-                viewModel.update(updatedRule)
+            when {
+                updatedRule.name.isBlank() -> {
+                    context.toastOnUi(R.string.cannot_empty)
+                    return@RuleEditSheet
+                }
+
+                updatedRule.chapterRule.isBlank() -> {
+                    context.toastOnUi(R.string.cannot_empty)
+                    return@RuleEditSheet
+                }
+
+                runCatching { Regex(updatedRule.chapterRule) }.isFailure -> {
+                    context.toastOnUi(R.string.invalid_format)
+                    return@RuleEditSheet
+                }
             }
+            onIntent(TxtTocRuleIntent.SaveRule(updatedRule, isNew = editingRule == null))
             showEditSheet = false
             editingRule = null
         },
-        onCopy = { viewModel.copyRule(it) },
-        onPaste = { viewModel.pasteRule() },
+        onCopy = { onIntent(TxtTocRuleIntent.CopyRule(it)) },
+        onPaste = onPasteRule,
         toFields = { r ->
             RuleEditFields(
                 name = r?.name ?: "",
-                rule1 = r?.rule ?: "",
-                rule2 = r?.example ?: ""
+                rule1 = r?.chapterRule ?: "",
+                rule2 = r?.example ?: "",
+                rule3 = r?.volumeRule ?: ""
             )
         },
         fromFields = { fields, old ->
             old?.copy(
                 name = fields.name,
-                rule = fields.rule1,
+                chapterRule = fields.rule1,
+                volumeRule = fields.rule3,
                 example = fields.rule2
             ) ?: TxtTocRule(
                 name = fields.name,
-                rule = fields.rule1,
+                chapterRule = fields.rule1,
+                volumeRule = fields.rule3,
                 example = fields.rule2
             )
-        }
+        },
+        showTestButton = true,
+        onTest = { rule, example ->
+            val regex = Regex(rule, RegexOption.MULTILINE)
+            withContext(Dispatchers.Default) {
+                val normalized = example.replace("\r\n", "\n").replace("\r", "\n")
+                val lines = normalized.lines()
+                val fullText = "\n$normalized"
+                val matchRanges = regex.findAll(fullText)
+                    .map { it.range.first..it.range.last + 1 }
+                    .toMutableList()
+                var offset = 1
+                lines.map { line ->
+                    val lineStart = offset
+                    val lineEnd = offset + line.length
+                    val matched = matchRanges.any { range ->
+                        if (range.first == range.last) {
+                            range.first in lineStart..lineEnd
+                        } else {
+                            range.first < lineEnd && range.last > lineStart
+                        }
+                    }
+                    offset = lineEnd + 1
+                    TestLineResult(line = line, matched = matched, matchResult = if (matched) line else null)
+                }
+            }
+        },
     )
 
     RuleListScaffold(
@@ -257,27 +336,22 @@ fun TxtRuleScreen(
         } else {
             stringResource(R.string.txt_toc_rule)
         },
-        state = uiState,
+        state = state,
         onBackClick = { onBackClick() },
         onSearchToggle = { active ->
-            viewModel.setSearchMode(active)
+            onIntent(TxtTocRuleIntent.SetSearchMode(active))
         },
-        onSearchQueryChange = { viewModel.setSearchKey(it) },
-        searchPlaceholder = stringResource(R.string.replace_purify_search),
-        onClearSelection = { viewModel.setSelection(emptySet()) },
-        onSelectAll = { viewModel.setSelection(rules.map { it.id }.toSet()) },
-        onSelectInvert = {
-            val allIds = rules.map { it.id }.toSet()
-            viewModel.setSelection(allIds - selectedIds)
-        },
+        onSearchQueryChange = { onIntent(TxtTocRuleIntent.UpdateSearchQuery(it)) },
+        searchPlaceholder = stringResource(R.string.search_txt_toc_rule),
+        onClearSelection = { onIntent(TxtTocRuleIntent.ClearSelection) },
+        onSelectAll = { onIntent(TxtTocRuleIntent.SelectAll) },
+        onSelectInvert = { onIntent(TxtTocRuleIntent.InvertSelection) },
         selectionSecondaryActions = listOf(
             ActionItem(text = stringResource(R.string.enable), onClick = {
-                viewModel.enableSelectionByIds(selectedIds)
-                viewModel.setSelection(emptySet())
+                onIntent(TxtTocRuleIntent.EnableSelection)
             }),
             ActionItem(text = stringResource(R.string.disable_selection), onClick = {
-                viewModel.disableSelectionByIds(selectedIds)
-                viewModel.setSelection(emptySet())
+                onIntent(TxtTocRuleIntent.DisableSelection)
             }),
             ActionItem(
                 text = stringResource(R.string.export),
@@ -285,8 +359,8 @@ fun TxtRuleScreen(
         ),
         onDeleteSelected = { ids ->
             @Suppress("UNCHECKED_CAST")
-            viewModel.delSelectionByIds(ids as Set<Long>)
-            viewModel.setSelection(emptySet())
+            onIntent(TxtTocRuleIntent.SetSelection(ids as Set<Long>))
+            onIntent(TxtTocRuleIntent.DeleteSelection)
         },
         onAddClick = {
             editingRule = null
@@ -298,11 +372,15 @@ fun TxtRuleScreen(
                 text = stringResource(R.string.import_str),
                 onClick = { showImportSheet = true; dismiss() }
             )
+            RoundDropdownMenuItem(
+                text = stringResource(R.string.import_built_in_rules),
+                onClick = { onIntent(TxtTocRuleIntent.ImportBuiltInRules); dismiss() }
+            )
         }
     ) { paddingValues ->
         Box(
             modifier = Modifier
-            .fillMaxSize()
+                .fillMaxSize()
         ) {
             FastScrollLazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -316,14 +394,30 @@ fun TxtRuleScreen(
                 items(rules, key = { it.id }) { item ->
 
                     val isItemHighLighted = if (isPickMode) {
-                        item.rule.rule == initialRule
+                        item.rule.chapterRule == initialRule
                     } else {
                         selectedIds.contains(item.id)
                     }
+                    val enabledState = stringResource(
+                        if (item.isEnabled) R.string.enabled else R.string.disabled
+                    )
+                    val itemDescription = listOfNotNull(
+                        item.name,
+                        item.example.takeIf { it.isNotBlank() },
+                        enabledState,
+                        if (!isPickMode && !inSelectionMode) {
+                            stringResource(R.string.a11y_long_press_reorder)
+                        } else {
+                            null
+                        }
+                    ).joinToString()
 
                     ReorderableSelectionItem(
                         state = reorderableState,
                         key = item.id,
+                        reorderIndex = rules.indexOf(item),
+                        reorderItemCount = rules.size,
+                        onMoveItem = { from, to -> onIntent(TxtTocRuleIntent.MoveItem(from, to)) },
                         title = item.name,
                         subtitle = item.example,
                         isEnabled = item.isEnabled,
@@ -331,18 +425,30 @@ fun TxtRuleScreen(
                         inSelectionMode = inSelectionMode,
                         onToggleSelection = {
                             if (isPickMode) {
-                                onPickRule.invoke(item.rule.rule)
+                                onPickRule.invoke(item.rule.chapterRule)
                                 onBackClick()
                             } else {
-                                viewModel.toggleSelection(item.id)
+                                onIntent(TxtTocRuleIntent.ToggleSelection(item.id))
                             }
                         },
-                        onEnabledChange = { enabled -> viewModel.update(item.rule.copy(enable = enabled)) },
+                        onEnabledChange = { enabled ->
+                            onIntent(TxtTocRuleIntent.SetRuleEnabled(item.rule, enabled))
+                        },
+                        contentDescription = itemDescription,
+                        enableSwitchContentDescription = stringResource(
+                            R.string.a11y_rule_enabled_switch,
+                            item.name
+                        ),
+                        editContentDescription = stringResource(R.string.a11y_edit_named, item.name),
                         onClickEdit = { editingRule = item.rule; showEditSheet = true },
                         trailingAction = {
                             SmallPlainButton(
                                 onClick = { showDeleteRuleDialog = item.rule },
-                                icon = AppIcons.Delete
+                                icon = AppIcons.Delete,
+                                contentDescription = stringResource(
+                                    R.string.a11y_delete_named,
+                                    item.name
+                                )
                             )
                         }
                     )
@@ -353,7 +459,7 @@ fun TxtRuleScreen(
                     listState = listState,
                     items = rules,
                     selectedIds = selectedIds,
-                    onSelectionChange = { viewModel.setSelection(it) },
+                    onSelectionChange = { onIntent(TxtTocRuleIntent.SetSelection(it)) },
                     idProvider = { it.id },
                     modifier = Modifier
                         .fillMaxHeight()
@@ -364,4 +470,3 @@ fun TxtRuleScreen(
         }
     }
 }
-

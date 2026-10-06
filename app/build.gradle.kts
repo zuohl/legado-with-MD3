@@ -27,6 +27,9 @@ val versionMinor = versionProps["VERSION_MINOR"]?.toString()?.toInt() ?: 0
 val versionPatch = versionProps["VERSION_PATCH"]?.toString()?.toInt() ?: 0
 val appName = "legado"
 val projectVersionName = "$versionMajor.$versionMinor.$versionPatch"
+val enableAbiSplits = providers.gradleProperty("enableAbiSplits")
+    .map(String::toBoolean)
+    .getOrElse(true)
 
 android {
     compileSdk = 37
@@ -118,7 +121,7 @@ android {
 
     splits {
         abi {
-            isEnable = true
+            isEnable = enableAbiSplits
             reset()
             include("armeabi-v7a", "arm64-v8a")
             isUniversalApk = true
@@ -148,7 +151,22 @@ android {
     }
 
     lint {
+        baseline = file("lint-baseline.xml")
         checkDependencies = true
+        // UnusedResources 在基线里占 1223/1621 条、12218 行（全文件的 75%），几乎全是
+        // 跟随上游时留下的资源；release 本来就开了精确资源压缩，它们不会进 APK。
+        // 关掉它让基线只剩真正值得盯的那部分，新增问题照样报红。
+        disable += "UnusedResources"
+    }
+
+    testOptions {
+        unitTests {
+            // 阅读器核心在构造期就读字符串资源（TextPageFactory 的 keepSwipeTip、
+            // TextPage 的默认 text/title、ReadView 的无障碍动作名）。不打开这个，
+            // Robolectric 下取任何 R.string 都是 Resources$NotFoundException，
+            // 整条阅读器测试线（Track D·D1c）就起不来。
+            isIncludeAndroidResources = true
+        }
     }
 }
 
@@ -173,6 +191,8 @@ dependencies {
     "baselineProfile"(project(":baselineprofile"))
     coreLibraryDesugaring(libs.desugar)
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.bundles.androidTest)
     implementation(libs.kotlin.stdlib)
     implementation(libs.kotlinx.collections.immutable)
@@ -207,6 +227,7 @@ dependencies {
     implementation(libs.jsoup)
     implementation(libs.json.path)
     implementation(libs.jsoupxpath)
+    implementation(libs.intellij.markdown)
     implementation(project(":modules:book"))
     implementation(project(":modules:rhino"))
     implementation(libs.okhttp)
@@ -233,8 +254,8 @@ dependencies {
     implementation(libs.markwon.image.glide)
     implementation(libs.markwon.ext.tables)
     implementation(libs.markwon.html)
-    implementation(libs.markdown.renderer.m3)
     implementation(libs.quick.chinese.transfer.core)
+    // 书源 JS 通过 Packages.cn.hutool.* 调用，保留在 classpath（应用代码不依赖，见 AGENTS.md）
     implementation(libs.hutool.crypto)
     //noinspection GradleDependency
     implementation(platform(libs.firebase.bom))
@@ -242,6 +263,7 @@ dependencies {
     implementation(libs.firebase.perf)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.palette)
+    implementation(libs.androidx.biometric)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.startup.runtime)
     implementation(platform(libs.androidx.compose.bom))
@@ -254,15 +276,22 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.gif)
     implementation(libs.coil.svg)
+    implementation(libs.coil.network.okhttp)
+    implementation(libs.telephoto.zoomable.image.coil3)
     implementation(libs.accompanist.webview)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.datetime)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.navigation3)
     implementation(libs.androidx.compose.animation)
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.constraintlayout.compose)
     implementation(libs.androidx.compose.ui.viewbinding)
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.androidx.navigation3.ui)
+    // 显式保持 navigationevent 1.2 系列，保留已分离输入的预测式返回崩溃修复。
+    implementation(libs.androidx.navigationevent)
+    implementation(libs.androidx.navigationevent.compose)
     implementation(libs.androidx.compose.adaptive)
     implementation(libs.androidx.compose.adaptive.layout)
     implementation(libs.androidx.compose.adaptive.navigation)

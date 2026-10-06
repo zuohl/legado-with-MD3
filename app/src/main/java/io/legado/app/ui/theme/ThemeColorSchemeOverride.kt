@@ -1,7 +1,6 @@
 package io.legado.app.ui.theme
 
 import androidx.compose.animation.animateColor
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.tween
@@ -12,7 +11,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
-import io.legado.app.ui.config.themeConfig.ThemeConfig
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
@@ -21,7 +19,8 @@ fun ColorScheme.toLegadoColorScheme(
     customBgColor: Color = background,
     customFontColor: Color = onSurface,
     customTopBarColor: Color = surface,
-    customNavBarColor: Color = surface
+    customNavBarColor: Color = surface,
+    surfaceInput: Color = Color.Unspecified,
 ): LegadoColorScheme {
     return LegadoColorScheme(
         primary = primary,
@@ -72,10 +71,11 @@ fun ColorScheme.toLegadoColorScheme(
         tertiaryFixedDim = tertiaryFixedDim,
         onTertiaryFixed = onTertiaryFixed,
         onTertiaryFixedVariant = onTertiaryFixedVariant,
-        cardContainer = primaryContainer.copy(alpha = 0.5f),
+        cardContainer = surfaceContainerLow,
         onCardContainer = primary,
         onSheetContent = surface,
-        cardPrimaryContainer = primaryContainer
+        cardPrimaryContainer = primaryContainer,
+        surfaceInput = surfaceInput
     )
 }
 
@@ -92,43 +92,44 @@ fun ColorScheme.toLegadoColorScheme(): LegadoColorScheme {
 fun ProvideColorSchemeOverride(
     colorScheme: ColorScheme,
     seedColor: Color = colorScheme.primary,
+    overrideIsDark: Boolean? = null,
     content: @Composable () -> Unit,
 ) {
-    val themeAnimationSpec = tween<Color>(
-        durationMillis = 700,
-        easing = FastOutSlowInEasing
-    )
+    val themeSettings = LocalAppUiConfiguration.current.theme
     val baseThemeMode = LocalLegadoThemeColors.current
-    val animatedColorScheme = colorScheme.animateColorSchemeAsState(themeAnimationSpec)
-    val animatedSeedColor = animateColorAsState(
-        targetValue = seedColor,
-        animationSpec = themeAnimationSpec,
-        label = "theme_seed_animation"
-    ).value
-    val legadoColorScheme = remember(animatedColorScheme) { animatedColorScheme.toLegadoColorScheme() }
-    val overrideThemeMode = remember(baseThemeMode, animatedColorScheme, animatedSeedColor) {
+    val surfaceInput = themeSettings.bookInfoInputColor
+        .takeIf { it != 0 }
+        ?.let(::Color)
+        ?: Color.Unspecified
+    val legadoColorScheme = remember(colorScheme, surfaceInput) {
+        colorScheme.toLegadoColorScheme(surfaceInput = surfaceInput)
+    }
+    val resolvedIsDark = overrideIsDark ?: baseThemeMode.isDark
+    val overrideThemeMode = remember(baseThemeMode, colorScheme, seedColor, resolvedIsDark) {
         baseThemeMode.copy(
-            colorScheme = animatedColorScheme,
-            seedColor = animatedSeedColor,
+            colorScheme = colorScheme,
+            seedColor = seedColor,
+            isDark = resolvedIsDark,
         )
     }
-    val materialTypography = MaterialTheme.typography
-    val materialShapes = MaterialTheme.shapes
     val isMiuixEngine = ThemeResolver.isMiuixEngine(overrideThemeMode.composeEngine)
     val miuixColorSchemeMode = remember(overrideThemeMode.themeMode) {
         overrideThemeMode.themeMode.toMiuixMonetMode()
     }
-    val miuixPaletteStyle = remember(ThemeConfig.paletteStyle) {
-        ThemeResolver.resolveMiuixPaletteStyle(ThemeConfig.paletteStyle)
+    val miuixPaletteStyle = remember(themeSettings.paletteStyle) {
+        ThemeResolver.resolveMiuixPaletteStyle(themeSettings.paletteStyle)
     }
-    val miuixColorSpec = remember(ThemeConfig.materialVersion, ThemeConfig.paletteStyle) {
-        ThemeResolver.resolveMiuixColorSpec(ThemeConfig.materialVersion, ThemeConfig.paletteStyle)
+    val miuixColorSpec = remember(themeSettings.materialVersion, themeSettings.paletteStyle) {
+        ThemeResolver.resolveMiuixColorSpec(
+            themeSettings.materialVersion,
+            themeSettings.paletteStyle,
+        )
     }
     val miuixController = remember(
         isMiuixEngine,
         miuixColorSchemeMode,
         overrideThemeMode.isDark,
-        animatedSeedColor,
+        seedColor,
         miuixPaletteStyle,
         miuixColorSpec
     ) {
@@ -137,7 +138,7 @@ fun ProvideColorSchemeOverride(
         } else {
             ThemeController(
                 colorSchemeMode = miuixColorSchemeMode,
-                keyColor = animatedSeedColor,
+                keyColor = seedColor,
                 paletteStyle = miuixPaletteStyle,
                 colorSpec = miuixColorSpec,
                 isDark = overrideThemeMode.isDark
@@ -151,19 +152,13 @@ fun ProvideColorSchemeOverride(
     ) {
         if (miuixController != null) {
             MiuixTheme(controller = miuixController) {
-                MaterialTheme(
-                    colorScheme = animatedColorScheme,
-                    typography = materialTypography,
-                    shapes = materialShapes
-                ) {
-                    content()
-                }
+                content()
             }
         } else {
             MaterialTheme(
-                colorScheme = animatedColorScheme,
-                typography = materialTypography,
-                shapes = materialShapes
+                colorScheme = colorScheme,
+                typography = MaterialTheme.typography,
+                shapes = MaterialTheme.shapes
             ) {
                 content()
             }

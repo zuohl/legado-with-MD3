@@ -1,7 +1,10 @@
 package io.legado.app.ui.book.read.sheet
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -11,8 +14,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import io.legado.app.R
-import io.legado.app.help.config.ReadBookConfig
+import io.legado.app.ui.book.read.ReadSheetConfigUiState
 import io.legado.app.ui.book.read.ConfigUpdate
 import io.legado.app.ui.book.read.ReadBookIntent
 import io.legado.app.ui.widget.components.dialog.ColorPickerSheet
@@ -24,14 +28,15 @@ import io.legado.app.ui.widget.components.settingItem.TinySwitchSettingItem
 @Composable
 fun ShadowSetSheet(
     show: Boolean,
+    config: ReadSheetConfigUiState,
     onDismissRequest: () -> Unit,
     onIntent: (ReadBookIntent) -> Unit,
 ) {
-    var textShadow by remember { mutableStateOf(ReadBookConfig.textShadow) }
-    var shadowColor by remember { mutableIntStateOf(ReadBookConfig.durConfig.curTextShadowColor()) }
-    var shadowRadius by remember { mutableFloatStateOf(ReadBookConfig.shadowRadius) }
-    var shadowDx by remember { mutableFloatStateOf(ReadBookConfig.shadowDx) }
-    var shadowDy by remember { mutableFloatStateOf(ReadBookConfig.shadowDy) }
+    var textShadow by remember(show, config.textShadow) { mutableStateOf(config.textShadow) }
+    var shadowColor by remember(show, config.textShadowColor) { mutableIntStateOf(config.textShadowColor) }
+    var shadowRadius by remember(show, config.shadowRadius) { mutableFloatStateOf(config.shadowRadius) }
+    var shadowDx by remember(show, config.shadowDx) { mutableFloatStateOf(config.shadowDx) }
+    var shadowDy by remember(show, config.shadowDy) { mutableFloatStateOf(config.shadowDy) }
     var showColorPicker by remember { mutableStateOf(false) }
 
     AppModalBottomSheet(
@@ -39,7 +44,12 @@ fun ShadowSetSheet(
         onDismissRequest = onDismissRequest,
         title = stringResource(R.string.text_shadow_set),
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 16.dp),
+        ) {
             TinySwitchSettingItem(
                 title = stringResource(R.string.text_shadow_set),
                 checked = textShadow,

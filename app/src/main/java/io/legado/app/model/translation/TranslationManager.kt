@@ -3,10 +3,10 @@ package io.legado.app.model.translation
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.domain.gateway.TranslationCacheGateway
+import io.legado.app.domain.gateway.TranslationSettingsGateway
 import io.legado.app.domain.usecase.TranslateChapterUseCase
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.coroutine.Coroutine
-import io.legado.app.ui.config.translation.TranslationConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,6 +20,7 @@ object TranslationManager : KoinComponent {
 
     private val translationCacheGateway: TranslationCacheGateway by inject()
     private val translateChapterUseCase: TranslateChapterUseCase by inject()
+    private val translationSettingsGateway: TranslationSettingsGateway by inject()
 
     /** Per-chapter task state flows: bookUrl+chapterIndex -> StateFlow (only for in-progress tasks) */
     private val _taskStateFlows =
@@ -35,7 +36,7 @@ object TranslationManager : KoinComponent {
      */
     fun getChapterTaskStateFlow(bookUrl: String, chapterIndex: Int): StateFlow<TranslationChapterState>? {
         val key = TranslationChapterKey(bookUrl, chapterIndex)
-        return _taskStateFlows[key]?.takeIf { it.value.status == TranslationChapterStatus.Translating }
+        return _taskStateFlows[key]?.takeIf { it.value.status.isActive() }
     }
 
     /**
@@ -43,7 +44,7 @@ object TranslationManager : KoinComponent {
      */
     fun hasTranslatedCache(book: Book, chapter: BookChapter): Boolean {
         val cacheFile =
-            translationCacheGateway.getCacheFile(book, chapter, TranslationConfig.llmTargetLanguage)
+            translationCacheGateway.getCacheFile(book, chapter, currentTargetLanguage())
         return cacheFile.exists()
     }
 
@@ -52,7 +53,7 @@ object TranslationManager : KoinComponent {
      */
     fun getCachedTranslation(book: Book, chapter: BookChapter): String? {
         val cacheFile =
-            translationCacheGateway.getCacheFile(book, chapter, TranslationConfig.llmTargetLanguage)
+            translationCacheGateway.getCacheFile(book, chapter, currentTargetLanguage())
         return if (cacheFile.exists()) cacheFile.readText() else null
     }
 
@@ -73,7 +74,7 @@ object TranslationManager : KoinComponent {
 
         // Check if already translating
         _taskStateFlows[key]?.let { taskFlow ->
-            if (taskFlow.value.status == TranslationChapterStatus.Translating) {
+            if (taskFlow.value.status.isActive()) {
                 return taskFlow
             }
         }
@@ -89,7 +90,9 @@ object TranslationManager : KoinComponent {
         }
 
         // Create new task flow
-        val taskFlow = MutableStateFlow(TranslationChapterState(key, status = TranslationChapterStatus.Idle))
+        val taskFlow = MutableStateFlow(
+            TranslationChapterState(key, status = TranslationChapterStatus.Translating)
+        )
         _taskStateFlows[key] = taskFlow
 
         // Start translation in background
@@ -113,7 +116,6 @@ object TranslationManager : KoinComponent {
         val result = translateChapterUseCase.execute(
             book = book,
             bookChapter = bookChapter,
-            targetLanguage = TranslationConfig.llmTargetLanguage,
             onProgress = { progress ->
                 taskFlow.update {
                     it.copy(
@@ -123,7 +125,22 @@ object TranslationManager : KoinComponent {
                     )
                 }
             },
-            onTranslateStarted = onTranslateStarted
+            onTranslateStarted = onTranslateStarted,
+            onThinkingChanged = { thinking ->
+                taskFlow.update { state ->
+                    if (state.status.isActive()) {
+                        state.copy(
+                            status = if (thinking) {
+                                TranslationChapterStatus.Thinking
+                            } else {
+                                TranslationChapterStatus.Translating
+                            }
+                        )
+                    } else {
+                        state
+                    }
+                }
+            },
         )
 
         result.onSuccess { content ->
@@ -142,6 +159,7 @@ object TranslationManager : KoinComponent {
                 )
             }
         }
+        _taskStateFlows.remove(key, taskFlow)
     }
 
     /**
@@ -163,17 +181,25 @@ object TranslationManager : KoinComponent {
      * Delete translation cache and state for a chapter.
      */
     suspend fun deleteTranslationCache(book: Book, bookChapter: BookChapter) {
+        val targetLanguage = currentTargetLanguage()
         translationCacheGateway.deleteTranslation(
             book,
             bookChapter,
-            TranslationConfig.llmTargetLanguage
+            targetLanguage
         )
         translationCacheGateway.clearChunkCacheForChapter(
             book,
             bookChapter,
-            TranslationConfig.llmTargetLanguage
+            targetLanguage
         )
         clearChapterState(book.bookUrl, bookChapter.index)
     }
+
+    private fun currentTargetLanguage(): String {
+        return translationSettingsGateway.currentSettings.targetLanguage
+    }
+
+    private fun TranslationChapterStatus.isActive(): Boolean =
+        this == TranslationChapterStatus.Translating || this == TranslationChapterStatus.Thinking
 
 }

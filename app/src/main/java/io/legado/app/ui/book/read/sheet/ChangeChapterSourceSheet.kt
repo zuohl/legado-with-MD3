@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.MoreVert
@@ -17,6 +19,7 @@ import androidx.compose.material.icons.filled.PauseCircleOutline
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,6 +39,7 @@ import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.widget.components.AppTextField
 import io.legado.app.ui.widget.components.EmptyMessage
 import io.legado.app.ui.widget.components.button.series.MediumPlainButton
+import io.legado.app.ui.widget.components.button.series.MediumTonalButton
 import io.legado.app.ui.widget.components.card.SelectionItemCard
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenu
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
@@ -65,9 +69,10 @@ fun ChangeChapterSourceSheet(
         startAction = {
             if (!state.showToc) {
                 Box {
-                    MediumPlainButton(
+                    MediumTonalButton(
                         onClick = { showOptionsMenu = true },
-                        icon = Icons.Default.MoreVert
+                icon = Icons.Default.MoreVert,
+                contentDescription = stringResource(R.string.more_menu)
                     )
                     RoundDropdownMenu(
                         expanded = showOptionsMenu,
@@ -112,13 +117,17 @@ fun ChangeChapterSourceSheet(
         endAction = {
             if (!state.showToc) {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    MediumPlainButton(
+                    MediumTonalButton(
                         onClick = { onIntent(ChangeChapterSourceIntent.StartStopSearch) },
-                        icon = if (state.isSearching) Icons.Default.PauseCircleOutline else Icons.Default.Refresh,
+                icon = if (state.isSearching) Icons.Default.PauseCircleOutline else Icons.Default.Refresh,
+                contentDescription = stringResource(
+                    if (state.isSearching) R.string.pause else R.string.refresh
+                ),
                     )
-                    MediumPlainButton(
+                    MediumTonalButton(
                         onClick = { showFilterSheet = true },
-                        icon = Icons.Default.FilterList
+                icon = Icons.Default.FilterList,
+                contentDescription = stringResource(R.string.screen)
                     )
                 }
             }
@@ -153,7 +162,7 @@ fun ChangeChapterSourceSheet(
         selectedSources = state.scopeState.sourceUrls,
         onToggleSource = { onIntent(ChangeChapterSourceIntent.ToggleScopeSource(it)) },
         isSourceScope = state.scopeState.isSource,
-        onConfirm = {
+        onApplyScope = { selection ->
             onIntent(ChangeChapterSourceIntent.ApplyScope)
             showFilterSheet = false
         }
@@ -175,16 +184,23 @@ private fun TocContent(
             AppCircularProgressIndicator()
         }
     } else {
+        val listState = rememberLazyListState()
+        LaunchedEffect(state.currentTocIndex, state.tocItems) {
+            if (state.currentTocIndex >= 0) {
+                listState.scrollToItem(state.currentTocIndex)
+            }
+        }
         LazyColumn(
             modifier = Modifier.fillMaxWidth(),
+            state = listState,
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            items(state.tocItems) { chapter ->
+            itemsIndexed(state.tocItems) { index, chapter ->
                 SelectionItemCard(
                     title = chapter.title,
                     containerColor = LegadoTheme.colorScheme.surfaceContainerLow,
                     selectedContainerColor = LegadoTheme.colorScheme.primaryContainer.copy(alpha = 0.32f),
-                    isSelected = false,
+                    isSelected = index == state.currentTocIndex,
                     onToggleSelection = {
                         onIntent(ChangeChapterSourceIntent.SelectChapter(chapter))
                     },
@@ -251,7 +267,7 @@ private fun SearchContent(
                             onClick = { onBookScoreClick(item) },
                             icon = Icons.Default.PushPin,
                             tint = if (bookScore > 0) LegadoTheme.colorScheme.primary else LegadoTheme.colorScheme.outline,
-                            contentDescription = null
+                            contentDescription = stringResource(R.string.a11y_pin_source)
                         )
                     },
                     supportingContent = {

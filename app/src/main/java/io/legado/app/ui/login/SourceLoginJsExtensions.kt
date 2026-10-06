@@ -7,6 +7,7 @@ import io.legado.app.constant.EventBus
 import io.legado.app.data.entities.BaseSource
 import io.legado.app.data.entities.HttpTTS
 import io.legado.app.model.ReadAloud
+import io.legado.app.ui.main.MainActivity
 import io.legado.app.ui.rss.read.RssJsExtensions
 import io.legado.app.ui.widget.dialog.BottomWebViewDialog
 import io.legado.app.utils.FileUtils
@@ -27,24 +28,41 @@ class SourceLoginJsExtensions(
 ) : RssJsExtensions(activity, source) {
     private val callbackRef: WeakReference<Callback> = WeakReference(callback)
     interface Callback {
-        fun upUiData(data: Map<String, String?>?)
-        fun reUiView()
+        fun upUiData(data: Map<String, Any?>?)
+        fun reUiView(deltaUp: Boolean = false)
     }
 
-    fun upLoginData(data: Map<String, String?>?) {
+    fun upLoginData(data: Map<String, Any?>?) {
         callbackRef.get()?.upUiData(data)
     }
 
-    fun reLoginView() {
-        callbackRef.get()?.reUiView()
+    @JvmOverloads
+    fun reLoginView(deltaUp: Boolean = false) {
+        callbackRef.get()?.reUiView(deltaUp)
     }
 
     fun refreshExplore() {
         callbackRef.get()?.reUiView()
     }
 
+    override fun open(name: String, url: String?, title: String?, origin: String?) {
+        if (name == "login") {
+            if (activityRef.get() is MainActivity && MainActivity.hasActiveSourceLoginRoute) {
+                activityRef.get()?.toastOnUi("已在登录界面")
+            } else {
+                super.open(name, url, title, origin)
+            }
+            return
+        }
+        super.open(name, url, title, origin)
+    }
+
     fun refreshBookInfo() {
         postEvent(EventBus.REFRESH_BOOK_INFO, true)
+    }
+
+    fun refreshBookToc() {
+        postEvent(EventBus.REFRESH_BOOK_TOC, true)
     }
 
     fun refreshContent() {

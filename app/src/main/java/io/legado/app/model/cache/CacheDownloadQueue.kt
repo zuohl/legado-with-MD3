@@ -106,12 +106,25 @@ class CacheDownloadQueue {
         }
     }
 
+    private val explicitIndices = IntRangeSet()
+
+    fun isExplicitDownload(index: Int): Boolean = synchronized(explicitIndices) { explicitIndices.contains(index) }
+
     private val ranges = ArrayDeque<RangeCursor>()
     private val indices = linkedSetOf<Int>()
     private val emittedIndices = IntRangeSet()
     private val removedIndices = IntRangeSet()
 
     fun enqueue(request: CacheDownloadRequest) {
+        if (request.source != CacheDownloadSource.ReadPreload) {
+            synchronized(explicitIndices) {
+                when (val selection = request.selection) {
+                    is ChapterSelection.Range -> explicitIndices.addRange(selection.start, selection.end)
+                    is ChapterSelection.Indices -> selection.values.forEach(explicitIndices::add)
+                    is ChapterSelection.Single -> explicitIndices.add(selection.index)
+                }
+            }
+        }
         enqueue(request.selection)
     }
 
@@ -125,9 +138,11 @@ class CacheDownloadQueue {
 
     fun next(bookUrl: String, runningIndices: Set<Int>): CacheDownloadCandidate? {
         while (indices.isNotEmpty()) {
-            val index = indices.first()
+            // 再次请求正在执行的章节必须等完成后复核，不能被调度器吞掉。
+            val index = indices.firstOrNull { it !in runningIndices } ?: break
             indices.remove(index)
-            if (index in runningIndices || removedIndices.contains(index)) continue
+            // indices 为显式排队：即使 range 上有 remove 孔也要出队
+            if (emittedIndices.contains(index)) continue
             emittedIndices.add(index)
             return CacheDownloadCandidate(bookUrl, index)
         }
@@ -138,9 +153,12 @@ class CacheDownloadQueue {
                 val index = cursor.next++
                 if (
                     removedIndices.contains(index) ||
-                    emittedIndices.contains(index) ||
-                    index in runningIndices
+                    emittedIndices.contains(index)
                 ) {
+                    continue
+                }
+                if (index in runningIndices) {
+                    indices.add(index)
                     continue
                 }
                 emittedIndices.add(index)
@@ -151,6 +169,14 @@ class CacheDownloadQueue {
         return null
     }
 
+    fun hasLaunchableChapter(runningIndices: Set<Int>): Boolean =
+        indices.any { it !in runningIndices && !emittedIndices.contains(it) } ||
+            ranges.any { cursor ->
+                (cursor.next..cursor.end).any {
+                    it !in runningIndices && !removedIndices.contains(it) && !emittedIndices.contains(it)
+                }
+            }
+
     fun removeChapter(index: Int): Boolean {
         val removed = indices.remove(index) || isWaiting(index)
         removedIndices.add(index)
@@ -158,6 +184,7 @@ class CacheDownloadQueue {
     }
 
     fun clear() {
+        synchronized(explicitIndices) { explicitIndices.clear() }
         ranges.clear()
         indices.clear()
         emittedIndices.clear()
@@ -169,17 +196,36 @@ class CacheDownloadQueue {
     }
 
     fun waitingCount(): Int {
-        val indexCount = indices.count {
-            !emittedIndices.contains(it) && !removedIndices.contains(it)
-        }
+        val indexSet = indices.filterNot { emittedIndices.contains(it) }.toHashSet()
         val rangeCount = if (ranges.size <= 1) {
-            ranges.sumOf { it.remainingCount(emittedIndices, removedIndices) }
+            ranges.sumOf { cursor ->
+                if (cursor.next > cursor.end) 0
+                else {
+                    var count = 0
+                    var i = cursor.next
+                    while (i <= cursor.end) {
+                        if (
+                            !emittedIndices.contains(i) &&
+                            !removedIndices.contains(i) &&
+                            i !in indexSet
+                        ) {
+                            count++
+                        }
+                        i++
+                    }
+                    count
+                }
+            }
         } else {
             val seen = mutableSetOf<Int>()
             ranges.forEach { cursor ->
                 var i = cursor.next
                 while (i <= cursor.end) {
-                    if (!emittedIndices.contains(i) && !removedIndices.contains(i)) {
+                    if (
+                        !emittedIndices.contains(i) &&
+                        !removedIndices.contains(i) &&
+                        i !in indexSet
+                    ) {
                         seen.add(i)
                     }
                     i++
@@ -187,12 +233,61 @@ class CacheDownloadQueue {
             }
             seen.size
         }
-        return indexCount + rangeCount
+        return indexSet.size + rangeCount
     }
 
     fun isWaiting(index: Int): Boolean {
-        if (emittedIndices.contains(index) || removedIndices.contains(index)) return false
-        return indices.contains(index) || ranges.any { it.contains(index) }
+        if (emittedIndices.contains(index)) return false
+        // 显式 indices 优先：即使 range 上打了 remove 孔，仍视为等待
+        if (indices.contains(index)) return true
+        if (removedIndices.contains(index)) return false
+        return ranges.any { it.contains(index) }
+    }
+
+    /**
+     * 当前仍等待下载的章节（indices 在前，其次为 range 剩余），不消费队列。
+     */
+    fun waitingIndices(): List<Int> {
+        val result = linkedSetOf<Int>()
+        indices.forEach { index ->
+            if (!emittedIndices.contains(index)) {
+                result.add(index)
+            }
+        }
+        ranges.forEach { cursor ->
+            var i = cursor.next
+            while (i <= cursor.end) {
+                if (
+                    !emittedIndices.contains(i) &&
+                    !removedIndices.contains(i) &&
+                    i !in result
+                ) {
+                    result.add(i)
+                }
+                i++
+            }
+        }
+        return result.toList()
+    }
+
+    /**
+     * 将章节提到队首（indices 优先于 range），供「点某一章优先下载」使用。
+     */
+    fun prioritize(index: Int) {
+        // 从 range 挖孔，避免与 indices 双重计数；显式 indices 不受 removed 影响
+        if (isInRange(index)) {
+            removedIndices.add(index)
+        }
+        emittedIndices.remove(index)
+        indices.remove(index)
+        val rest = indices.toList()
+        indices.clear()
+        indices.add(index)
+        rest.forEach { indices.add(it) }
+    }
+
+    private fun isInRange(index: Int): Boolean {
+        return ranges.any { it.contains(index) }
     }
 
     private fun addRange(start: Int, end: Int) {
@@ -208,7 +303,13 @@ class CacheDownloadQueue {
 
     private fun addIndex(index: Int) {
         emittedIndices.remove(index)
-        removedIndices.remove(index)
+        // 若该章仍落在某个 range 游标内，保留 removed 孔以免 waitingCount 双计；
+        // 仅当不在 range 内时清除 removed（失败重试等已从 range 消费过的场景）。
+        if (!isInRange(index)) {
+            removedIndices.remove(index)
+        } else {
+            removedIndices.add(index)
+        }
         indices.add(index)
     }
 }

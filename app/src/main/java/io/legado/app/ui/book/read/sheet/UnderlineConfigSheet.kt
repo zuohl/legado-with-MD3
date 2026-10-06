@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,7 +21,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.legado.app.R
-import io.legado.app.help.config.ReadBookConfig
+import io.legado.app.ui.book.read.ReadSheetConfigUiState
 import io.legado.app.ui.book.read.ConfigUpdate
 import io.legado.app.ui.book.read.ReadBookIntent
 import io.legado.app.ui.widget.components.dialog.ColorPickerSheet
@@ -31,17 +33,18 @@ import io.legado.app.ui.widget.components.settingItem.TinySwitchSettingItem
 @Composable
 fun UnderlineConfigSheet(
     show: Boolean,
+    config: ReadSheetConfigUiState,
     onDismissRequest: () -> Unit,
     onIntent: (ReadBookIntent) -> Unit,
 ) {
-    var underline by remember { mutableStateOf(ReadBookConfig.underline) }
-    var dottedLine by remember { mutableStateOf(ReadBookConfig.dottedLine) }
-    var underlineExtend by remember { mutableStateOf(ReadBookConfig.underlineExtend) }
-    var underlineColor by remember { mutableStateOf(ReadBookConfig.durConfig.curUnderlineColor()) }
-    var underlineHeight by remember { mutableFloatStateOf(ReadBookConfig.underlineHeight.toFloat()) }
-    var underlinePadding by remember { mutableFloatStateOf(ReadBookConfig.underlinePadding.toFloat()) }
-    var dottedBase by remember { mutableFloatStateOf(ReadBookConfig.durConfig.dottedBase) }
-    var dottedRatio by remember { mutableFloatStateOf(ReadBookConfig.durConfig.dottedRatio) }
+    var underline by remember(show, config.underline) { mutableStateOf(config.underline) }
+    var dottedLine by remember(show, config.dottedLine) { mutableStateOf(config.dottedLine) }
+    var underlineExtend by remember(show, config.underlineExtend) { mutableStateOf(config.underlineExtend) }
+    var underlineColor by remember(show, config.underlineColor) { mutableStateOf(config.underlineColor) }
+    var underlineHeight by remember(show, config.underlineHeight) { mutableFloatStateOf(config.underlineHeight.toFloat()) }
+    var underlinePadding by remember(show, config.underlinePadding) { mutableFloatStateOf(config.underlinePadding.toFloat()) }
+    var dottedBase by remember(show, config.dottedBase) { mutableFloatStateOf(config.dottedBase) }
+    var dottedRatio by remember(show, config.dottedRatio) { mutableFloatStateOf(config.dottedRatio) }
     var showColorPicker by remember { mutableStateOf(false) }
 
     AppModalBottomSheet(
@@ -52,6 +55,7 @@ fun UnderlineConfigSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(bottom = 16.dp),
         ) {
             TinySwitchSettingItem(

@@ -30,11 +30,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.legado.app.R
 import io.legado.app.data.entities.BookGroup
+import io.legado.app.data.entities.TagGroupRule
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.widget.components.AppTextField
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
 import io.legado.app.ui.widget.components.button.ConfirmDismissButtonsRow
-import io.legado.app.ui.widget.components.button.series.MediumPlainButton
+import io.legado.app.ui.widget.components.button.series.MediumTonalButton
 import io.legado.app.ui.widget.components.card.GlassCard
 import io.legado.app.ui.widget.components.image.cover.CoilBookCover
 import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
@@ -98,6 +99,7 @@ fun GroupEditContent(
     onDismissRequest: () -> Unit,
     coverPath: String?,
     onCoverPathChange: (String?) -> Unit,
+    tagGroupRule: TagGroupRule? = null,
     viewModel: GroupViewModel = koinViewModel()
 ) {
     val context = LocalContext.current
@@ -106,6 +108,9 @@ fun GroupEditContent(
     var isPrivate by remember(group) { mutableStateOf(group?.isPrivate ?: false) }
     var showDisablePrivateDialog by remember(group) { mutableStateOf(false) }
     var selectedSortIndex by remember(group) { mutableIntStateOf(group?.bookSort ?: -1) }
+    var pattern by remember(tagGroupRule) { mutableStateOf(tagGroupRule?.pattern ?: "") }
+    var showPattern by remember(tagGroupRule) { mutableStateOf(tagGroupRule != null || pattern.isNotBlank()) }
+    var isSaving by remember(group) { mutableStateOf(false) }
 
     val sortOptions = stringArrayResource(R.array.book_sort)
     val sortEntryValues = remember(sortOptions) {
@@ -119,7 +124,8 @@ fun GroupEditContent(
                 val inputStream = context.contentResolver.openInputStream(uri)
                     ?: return@rememberLauncherForActivityResult
                 inputStream.use { input ->
-                    val fileName = MD5Utils.md5Encode(input) + ".png"
+                    val extension = groupCoverFileExtension(context.contentResolver.getType(uri))
+                    val fileName = MD5Utils.md5Encode(input) + ".$extension"
                     val file =
                         FileUtils.createFileIfNotExist(context.externalFiles, "covers", fileName)
                     FileOutputStream(file).use { output ->
@@ -210,6 +216,28 @@ fun GroupEditContent(
             )
         }
 
+        Spacer(modifier = Modifier.height(8.dp))
+
+        CompactSwitchSettingItem(
+            title = "标签匹配规则",
+            description = if (showPattern) "启用后分组将根据书籍标签自动匹配" else "关闭后分组为手动管理",
+            checked = showPattern,
+            onCheckedChange = { showPattern = it }
+        )
+
+        if (showPattern) {
+            Spacer(modifier = Modifier.height(8.dp))
+
+            AppTextField(
+                value = pattern,
+                onValueChange = { pattern = it },
+                backgroundColor = LegadoTheme.colorScheme.onSheetContent,
+                label = stringResource(R.string.tag_group_pattern),
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 3
+            )
+        }
+
         Spacer(modifier = Modifier.height(16.dp))
 
         ConfirmDismissButtonsRow(
@@ -219,25 +247,43 @@ fun GroupEditContent(
                 if (groupName.isEmpty()) {
                     appCtx.toastOnUi("分组名称不能为空")
                 } else {
+                    isSaving = true
                     if (group != null) {
-                        viewModel.upGroup(
-                            group.copy(
+                        val ruleToSave = if (showPattern && pattern.isNotBlank()) {
+                            tagGroupRule?.copy(groupName = groupName, pattern = pattern)
+                                ?: TagGroupRule(groupName = groupName, pattern = pattern)
+                        } else {
+                            null
+                        }
+                        val ruleToDelete = tagGroupRule.takeIf { ruleToSave == null }
+                        viewModel.saveGroup(
+                            bookGroup = group.copy(
                                 groupName = groupName,
                                 cover = coverPath,
                                 bookSort = selectedSortIndex,
                                 enableRefresh = enableRefresh,
                                 isPrivate = isPrivate
-                            )
-                        ) {
-                            onDismissRequest()
-                        }
+                            ),
+                            ruleToSave = ruleToSave,
+                            ruleToDelete = ruleToDelete,
+                            onSuccess = onDismissRequest,
+                            onError = { error ->
+                                isSaving = false
+                                appCtx.toastOnUi(error.localizedMessage ?: "分组保存失败")
+                            }
+                        )
                     } else {
                         viewModel.addGroup(
                             groupName,
                             selectedSortIndex,
                             enableRefresh,
                             isPrivate,
-                            coverPath
+                            coverPath,
+                            pattern = pattern.takeIf { showPattern && it.isNotBlank() },
+                            onError = { error ->
+                                isSaving = false
+                                appCtx.toastOnUi(error.localizedMessage ?: "分组保存失败")
+                            }
                         ) {
                             onDismissRequest()
                         }
@@ -245,7 +291,9 @@ fun GroupEditContent(
                 }
             },
             dismissText = stringResource(R.string.cancel),
-            confirmText = stringResource(R.string.ok)
+            confirmText = stringResource(R.string.ok),
+            dismissEnabled = !isSaving,
+            confirmEnabled = !isSaving
         )
     }
 
@@ -264,6 +312,22 @@ fun GroupEditContent(
     )
 }
 
+internal fun groupCoverFileExtension(mimeType: String?): String {
+    val subtype = mimeType
+        ?.substringAfter('/', missingDelimiterValue = "")
+        ?.substringBefore(';')
+        ?.lowercase()
+        ?.takeIf { it.isNotBlank() }
+        ?: return "jpg"
+    return when (subtype) {
+        "jpeg", "jpg", "pjpeg" -> "jpg"
+        "svg+xml" -> "svg"
+        else -> subtype.substringBefore('+').takeIf {
+            it.length in 1..10 && it.all(Char::isLetterOrDigit)
+        } ?: "jpg"
+    }
+}
+
 @Composable
 fun GroupDeleteAction(
     group: BookGroup,
@@ -272,11 +336,12 @@ fun GroupDeleteAction(
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
 
-    MediumPlainButton(
+    MediumTonalButton(
         onClick = {
             showDeleteDialog = true
         },
-        icon = Icons.Default.Delete
+        icon = Icons.Default.Delete,
+        contentDescription = stringResource(R.string.delete),
     )
 
     AppAlertDialog(
@@ -304,7 +369,7 @@ fun GroupResetCoverAction(
     onCoverPathChange: (String?) -> Unit,
     viewModel: GroupViewModel = koinViewModel()
 ) {
-    MediumPlainButton(
+    MediumTonalButton(
         onClick = {
             if (group != null) {
                 viewModel.clearCover(group) {
@@ -315,6 +380,7 @@ fun GroupResetCoverAction(
                 onCoverPathChange(null)
             }
         },
-        icon = Icons.Default.Restore
+        icon = Icons.Default.Restore,
+        contentDescription = stringResource(R.string.reset),
     )
 }

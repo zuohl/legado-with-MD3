@@ -28,7 +28,6 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -42,15 +41,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
 import io.legado.app.data.entities.RssSource
-import io.legado.app.ui.login.SourceLoginActivity
-import io.legado.app.ui.rss.source.edit.RssSourceEditActivity
-import io.legado.app.ui.rss.source.manage.RssSourceActivity
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.theme.adaptiveContentPadding
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
@@ -65,40 +65,55 @@ import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenu
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
 import io.legado.app.ui.widget.components.text.AppText
 import io.legado.app.utils.openUrl
-import io.legado.app.utils.startActivity
+import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.flow.collectLatest
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RssScreen(
+fun RssRouteScreen(
     viewModel: RssViewModel = koinViewModel(),
     onOpenSort: (sourceUrl: String, sortUrl: String?, key: String?) -> Unit,
-    onOpenRead: (title: String?, origin: String, link: String?, openUrl: String?) -> Unit,
+    onOpenRead: (
+        title: String?,
+        origin: String,
+        link: String?,
+        openUrl: String?,
+        startPage: Boolean
+    ) -> Unit,
     onOpenRuleSub: () -> Unit,
     onOpenFavorites: () -> Unit,
+    onOpenLogin: (sourceUrl: String) -> Unit,
+    onOpenSourceEdit: (sourceUrl: String) -> Unit,
+    onOpenSourceManage: () -> Unit,
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    var sourceToDeleteUrl by rememberSaveable { mutableStateOf<String?>(null) }
-    val sourceToDelete = remember(sourceToDeleteUrl, uiState.items) {
-        uiState.items.firstOrNull { it.sourceUrl == sourceToDeleteUrl }
-    }
     val currentContext by rememberUpdatedState(context)
     val currentOnOpenSort by rememberUpdatedState(onOpenSort)
     val currentOnOpenRead by rememberUpdatedState(onOpenRead)
     val currentOnOpenRuleSub by rememberUpdatedState(onOpenRuleSub)
     val currentOnOpenFavorites by rememberUpdatedState(onOpenFavorites)
+    val currentOnOpenLogin by rememberUpdatedState(onOpenLogin)
+    val currentOnOpenSourceEdit by rememberUpdatedState(onOpenSourceEdit)
+    val currentOnOpenSourceManage by rememberUpdatedState(onOpenSourceManage)
 
     LaunchedEffect(viewModel) {
         viewModel.effects.collectLatest { effect ->
             when (effect) {
+                is RssEffect.ShowMessage -> currentContext.toastOnUi(effect.message)
                 is RssEffect.OpenSort -> {
                     currentOnOpenSort(effect.sourceUrl, effect.sortUrl, effect.key)
                 }
 
                 is RssEffect.OpenRead -> {
-                    currentOnOpenRead(effect.title, effect.origin, effect.link, effect.openUrl)
+                    currentOnOpenRead(
+                        effect.title,
+                        effect.origin,
+                        effect.link,
+                        effect.openUrl,
+                        effect.startPage
+                    )
                 }
 
                 is RssEffect.OpenExternalUrl -> {
@@ -106,16 +121,11 @@ fun RssScreen(
                 }
 
                 is RssEffect.OpenSourceEdit -> {
-                    currentContext.startActivity<RssSourceEditActivity> {
-                        putExtra("sourceUrl", effect.sourceUrl)
-                    }
+                    currentOnOpenSourceEdit(effect.sourceUrl)
                 }
 
                 is RssEffect.Login -> {
-                    currentContext.startActivity<SourceLoginActivity> {
-                        putExtra("type", "rssSource")
-                        putExtra("key", effect.sourceUrl)
-                    }
+                    currentOnOpenLogin(effect.sourceUrl)
                 }
 
                 RssEffect.OpenRuleSub -> {
@@ -127,123 +137,152 @@ fun RssScreen(
                 }
 
                 RssEffect.OpenSourceManage -> {
-                    currentContext.startActivity<RssSourceActivity>()
+                    currentOnOpenSourceManage()
                 }
             }
         }
     }
 
-    ListScaffold(
-        title = stringResource(R.string.rss),
+    RssScreen(
         state = uiState,
-        subtitle = uiState.group.ifEmpty { stringResource(R.string.all) },
-        onBackClick = null,
-        onSearchToggle = { viewModel.toggleSearchVisible(it) },
-        onSearchQueryChange = { viewModel.search(it) },
-        searchPlaceholder = stringResource(R.string.search_rss_source),
-        dropDownMenuContent = { dismiss ->
-            RoundDropdownMenuItem(
-                onClick = {
-                    viewModel.openSourceManage()
-                    dismiss()
-                },
-                text = stringResource(R.string.rss_feed_management),
-            )
-            PillDivider()
-            RoundDropdownMenuItem(
-                text = stringResource(R.string.all),
-                onClick = {
-                    viewModel.setGroup("")
-                    dismiss()
-                }
-            )
-            uiState.groups.forEach { group ->
+        onIntent = viewModel::onIntent,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RssScreen(
+    state: RssUiState,
+    onIntent: (RssIntent) -> Unit,
+) {
+    var sourceToDeleteUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    val sourceToDelete = remember(sourceToDeleteUrl, state.items) {
+        state.items.firstOrNull { it.sourceUrl == sourceToDeleteUrl }
+    }
+
+    ListScaffold(
+            title = stringResource(R.string.rss),
+            state = state,
+            subtitle = state.group.ifEmpty { stringResource(R.string.all) },
+            onBackClick = null,
+            onSearchToggle = { onIntent(RssIntent.ToggleSearch(it)) },
+            onSearchQueryChange = { onIntent(RssIntent.Search(it)) },
+            searchPlaceholder = stringResource(R.string.search_rss_source),
+            dropDownMenuContent = { dismiss ->
                 RoundDropdownMenuItem(
-                    text = group,
                     onClick = {
-                        viewModel.setGroup(group)
+                        onIntent(RssIntent.OpenSourceManage)
+                        dismiss()
+                    },
+                    text = stringResource(R.string.rss_feed_management),
+                )
+                PillDivider()
+                RoundDropdownMenuItem(
+                    text = stringResource(R.string.all),
+                    onClick = {
+                        onIntent(RssIntent.SetGroup(""))
                         dismiss()
                     }
                 )
-            }
-        },
-        contentWindowInsets = WindowInsets(0)
-    ) { paddingValues ->
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 72.dp),
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = adaptiveContentPadding(
-                top = paddingValues.calculateTopPadding(),
-                bottom = 120.dp
-            ),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    GlassCard(
-                        modifier = Modifier.weight(1f),
-                        onClick = { viewModel.openRuleSub() }
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(all = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            AppIcon(
-                                imageVector = Icons.Default.Subscriptions,
-                                contentDescription = null
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            AppText(
-                                text = stringResource(R.string.rule_subscription),
-                                style = LegadoTheme.typography.labelMediumEmphasized
-                            )
+                state.groups.forEach { group ->
+                    RoundDropdownMenuItem(
+                        text = group,
+                        onClick = {
+                            onIntent(RssIntent.SetGroup(group))
+                            dismiss()
                         }
-                    }
-                    GlassCard(
-                        modifier = Modifier.weight(1f),
-                        onClick = { viewModel.openFavorites() }
+                    )
+                }
+            },
+            contentWindowInsets = WindowInsets(0)
+        ) { paddingValues ->
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 72.dp),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = adaptiveContentPadding(
+                    top = paddingValues.calculateTopPadding(),
+                    bottom = 120.dp
+                ),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    val ruleSubscriptionLabel = stringResource(R.string.rule_subscription)
+                    val favoriteLabel = stringResource(R.string.favorite)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Row(
+                        GlassCard(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(all = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
+                                .weight(1f)
+                                .semantics(mergeDescendants = true) {
+                                    contentDescription = ruleSubscriptionLabel
+                                    role = Role.Button
+                                },
+                            onClick = { onIntent(RssIntent.OpenRuleSub) }
                         ) {
-                            AppIcon(
-                                imageVector = Icons.Default.Star,
-                                contentDescription = null
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            AppText(
-                                text = stringResource(R.string.favorite),
-                                style = LegadoTheme.typography.labelMediumEmphasized
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(all = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                AppIcon(
+                                    imageVector = Icons.Default.Subscriptions,
+                                    contentDescription = null
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                AppText(
+                                    text = ruleSubscriptionLabel,
+                                    style = LegadoTheme.typography.labelMediumEmphasized
+                                )
+                            }
+                        }
+                        GlassCard(
+                            modifier = Modifier
+                                .weight(1f)
+                                .semantics(mergeDescendants = true) {
+                                    contentDescription = favoriteLabel
+                                    role = Role.Button
+                                },
+                            onClick = { onIntent(RssIntent.OpenFavorites) }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(all = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                AppIcon(
+                                    imageVector = Icons.Default.Star,
+                                    contentDescription = null
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                AppText(
+                                    text = favoriteLabel,
+                                    style = LegadoTheme.typography.labelMediumEmphasized
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            items(uiState.items, key = { it.sourceUrl }) { source ->
-                RssSourceGridItem(
-                    modifier = Modifier.animateItem(),
-                    source = source,
-                    onClick = { viewModel.openSource(source) },
-                    onTop = { viewModel.topSource(source) },
-                    onEdit = { viewModel.openSourceEdit(source) },
-                    onDelete = { sourceToDeleteUrl = source.sourceUrl },
-                    onDisable = { viewModel.disable(source) },
-                    onLogin = { viewModel.login(source) }
-                )
+                items(state.items, key = { it.sourceUrl }) { source ->
+                    RssSourceGridItem(
+                        modifier = Modifier.animateItem(),
+                        source = source,
+                        onClick = { onIntent(RssIntent.OpenSource(source)) },
+                        onTop = { onIntent(RssIntent.TopSource(source)) },
+                        onEdit = { onIntent(RssIntent.EditSource(source)) },
+                        onDelete = { sourceToDeleteUrl = source.sourceUrl },
+                        onDisable = { onIntent(RssIntent.DisableSource(source)) },
+                        onLogin = { onIntent(RssIntent.Login(source)) }
+                    )
+                }
             }
-        }
     }
 
     AppAlertDialog(
@@ -252,7 +291,7 @@ fun RssScreen(
         title = stringResource(R.string.draw),
         confirmText = stringResource(R.string.yes),
         onConfirm = { source ->
-            viewModel.del(source)
+            onIntent(RssIntent.DeleteSource(source))
             sourceToDeleteUrl = null
         },
         dismissText = stringResource(R.string.no),
@@ -273,20 +312,29 @@ fun RssSourceGridItem(
     onLogin: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val openLabel = stringResource(R.string.open)
+    val moreMenuLabel = stringResource(R.string.more_menu)
 
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
             .combinedClickable(
+                role = Role.Button,
+                onClickLabel = openLabel,
+                onLongClickLabel = moreMenuLabel,
                 onClick = onClick,
                 onLongClick = { showMenu = true }
             )
+            .semantics(mergeDescendants = true) {
+                contentDescription = source.sourceName
+                role = Role.Button
+            }
             .padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box {
             SourceIcon(
-                path = source.sourceIcon.ifEmpty { R.drawable.image_rss },
+                path = source.sourceIcon,
                 sourceOrigin = source.sourceUrl,
                 modifier = Modifier.size(48.dp)
             )

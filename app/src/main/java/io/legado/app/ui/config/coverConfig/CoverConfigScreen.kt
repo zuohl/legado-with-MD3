@@ -11,17 +11,15 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
-import io.legado.app.constant.PreferKey
 import io.legado.app.ui.theme.adaptiveContentPadding
 import io.legado.app.ui.widget.components.AppScaffold
 import io.legado.app.ui.widget.components.SplicedColumnGroup
@@ -33,17 +31,46 @@ import io.legado.app.ui.widget.components.topbar.GlassMediumFlexibleTopAppBar
 import io.legado.app.ui.widget.components.topbar.GlassTopAppBarDefaults
 import io.legado.app.ui.widget.components.topbar.TopBarNavigationButton
 import org.koin.androidx.compose.koinViewModel
+import androidx.compose.ui.platform.LocalContext
+import io.legado.app.utils.toastOnUi
+import kotlinx.coroutines.flow.collectLatest
+
+@Composable
+fun CoverConfigRouteScreen(
+    onBackClick: () -> Unit,
+    onNavigateToCoverAlbums: () -> Unit,
+    viewModel: CoverConfigViewModel = koinViewModel(),
+) {
+    val context = LocalContext.current
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) {
+        viewModel.effects.collectLatest { effect ->
+            when (effect) {
+                is CoverConfigEffect.ShowToast -> context.toastOnUi(effect.stringRes)
+            }
+        }
+    }
+    CoverConfigScreen(
+        state = state,
+        onIntent = viewModel::onIntent,
+        onBackClick = onBackClick,
+        onNavigateToCoverAlbums = onNavigateToCoverAlbums,
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CoverConfigScreen(
+    state: CoverConfigUiState,
+    onIntent: (CoverConfigIntent) -> Unit,
     onBackClick: () -> Unit,
-    viewModel: CoverConfigViewModel = koinViewModel()
+    onNavigateToCoverAlbums: () -> Unit,
 ) {
     val scrollBehavior = GlassTopAppBarDefaults.defaultScrollBehavior()
-    var showCoverRuleSheet by remember { mutableStateOf(false) }
-    var manageKey by remember { mutableStateOf<String?>(null) }
-    var showColorPickerByField by remember { mutableStateOf<String?>(null) }
+    val settings = state.settings
+    val albumState = state.albumSelection
+    val selectedAlbum = albumState.albums
+        .firstOrNull { it.id == albumState.selectedAlbumId }
 
     AppScaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -69,47 +96,62 @@ fun CoverConfigScreen(
                 SwitchSettingItem(
                     title = stringResource(R.string.only_wifi),
                     description = stringResource(R.string.only_wifi_summary),
-                    checked = CoverConfig.loadCoverOnlyWifi,
-                    onCheckedChange = { CoverConfig.loadCoverOnlyWifi = it }
+                    checked = settings.loadOnlyOnWifi,
+                    onCheckedChange = { value ->
+                        onIntent(CoverConfigIntent.SetLoadOnlyOnWifi(value))
+                    }
                 )
 
                 ClickableSettingItem(
                     title = stringResource(R.string.cover_rule),
                     description = stringResource(R.string.cover_rule_summary),
-                    onClick = { showCoverRuleSheet = true }
+                    onClick = { onIntent(CoverConfigIntent.ShowSheet(CoverConfigSheet.Rule)) }
                 )
 
                 SwitchSettingItem(
                     title = stringResource(R.string.use_default_cover),
                     description = stringResource(R.string.use_default_cover_s),
-                    checked = CoverConfig.useDefaultCover,
-                    onCheckedChange = { CoverConfig.useDefaultCover = it }
+                    checked = settings.useDefaultCover,
+                    onCheckedChange = { value ->
+                        onIntent(CoverConfigIntent.SetUseDefaultCover(value))
+                    }
+                )
+
+                ClickableSettingItem(
+                    title = stringResource(R.string.default_cover),
+                    description = selectedAlbum?.let {
+                        "${it.name} · ${
+                            stringResource(
+                                R.string.cover_album_day_night_count,
+                                it.lightImages.size,
+                                it.darkImages.size,
+                            )
+                        }"
+                    } ?: stringResource(R.string.cover_album_none),
+                    onClick = { onIntent(CoverConfigIntent.ShowSheet(CoverConfigSheet.Album)) }
                 )
 
                 SwitchSettingItem(
                     title = stringResource(R.string.cover_show_shadow),
-                    checked = CoverConfig.coverShowShadow,
-                    onCheckedChange = {
-                        CoverConfig.coverShowShadow = it
-                        viewModel.updateCoverStyle()
+                    checked = settings.showShadow,
+                    onCheckedChange = { value ->
+                        onIntent(CoverConfigIntent.SetShowShadow(value))
                     }
                 )
 
                 SwitchSettingItem(
                     title = stringResource(R.string.cover_show_stroke),
-                    checked = CoverConfig.coverShowStroke,
-                    onCheckedChange = {
-                        CoverConfig.coverShowStroke = it
-                        viewModel.updateCoverStyle()
+                    checked = settings.showStroke,
+                    onCheckedChange = { value ->
+                        onIntent(CoverConfigIntent.SetShowStroke(value))
                     }
                 )
 
                 SwitchSettingItem(
                     title = stringResource(R.string.default_color),
-                    checked = CoverConfig.coverDefaultColor,
-                    onCheckedChange = {
-                        CoverConfig.coverDefaultColor = it
-                        viewModel.updateCoverStyle()
+                    checked = settings.useDefaultColor,
+                    onCheckedChange = { value ->
+                        onIntent(CoverConfigIntent.SetUseDefaultColor(value))
                     }
                 )
             }
@@ -117,58 +159,52 @@ fun CoverConfigScreen(
             SplicedColumnGroup {
                 DropdownListSettingItem(
                     title = stringResource(R.string.cover_info_orientation),
-                    selectedValue = CoverConfig.coverInfoOrientation,
+                    selectedValue = settings.infoOrientation,
                     displayEntries = arrayOf(
                         stringResource(R.string.screen_portrait),
                         stringResource(R.string.screen_landscape)
                     ),
                     entryValues = arrayOf("0", "1"),
-                    onValueChange = {
-                        CoverConfig.coverInfoOrientation = it
-                        viewModel.updateCoverStyle()
+                    onValueChange = { value ->
+                        onIntent(CoverConfigIntent.SetInfoOrientation(value))
                     }
                 )
             }
 
-                SplicedColumnGroup(title = stringResource(R.string.network_book_badge_setting)) {
-                    DropdownListSettingItem(
-                        title = stringResource(R.string.network_book_badge_setting),
-                        selectedValue = CoverConfig.exploreFilterState.toString(),
-                        displayEntries = arrayOf(
-                            stringResource(R.string.filter_show_all),
-                            stringResource(R.string.filter_hide_in_shelf),
-                            stringResource(R.string.filter_hide_same_name_author),
-                            stringResource(R.string.filter_show_not_in_shelf_only)
-                        ),
-                        entryValues = arrayOf("0", "1", "2", "3"),
-                        onValueChange = {
-                            CoverConfig.exploreFilterState = it.toInt()
-                        }
-                    )
-                }
+            SplicedColumnGroup(title = stringResource(R.string.network_book_badge_setting)) {
+                DropdownListSettingItem(
+                    title = stringResource(R.string.network_book_badge_setting),
+                    selectedValue = settings.exploreFilterState.toString(),
+                    displayEntries = arrayOf(
+                        stringResource(R.string.filter_show_all),
+                        stringResource(R.string.filter_hide_in_shelf),
+                        stringResource(R.string.filter_hide_same_name_author),
+                        stringResource(R.string.filter_show_not_in_shelf_only)
+                    ),
+                    entryValues = arrayOf("0", "1", "2", "3"),
+                    onValueChange = { value ->
+                        onIntent(CoverConfigIntent.SetExploreFilterState(value.toInt()))
+                    }
+                )
+            }
 
             SplicedColumnGroup(title = stringResource(R.string.day)) {
-                val coverCount = CoverConfig.defaultCover.split(",").filter { it.isNotBlank() }.size
-                ClickableSettingItem(
-                    title = stringResource(R.string.default_cover),
-                    description = if (coverCount > 0) {
-                        stringResource(R.string.cover_selected_images_count, coverCount)
-                    } else {
-                        stringResource(R.string.select_image)
-                    },
-                    onClick = { manageKey = PreferKey.defaultCover }
-                )
-
                 ClickableSettingItem(
                     title = stringResource(R.string.text_color),
-                    option = "#${Integer.toHexString(CoverConfig.coverTextColor).uppercase()}",
-                    onClick = { showColorPickerByField = "coverTextColor" },
+                    option = "#${Integer.toHexString(settings.textColor).uppercase()}",
+                    onClick = {
+                        onIntent(
+                            CoverConfigIntent.ShowSheet(
+                                CoverConfigSheet.Color(CoverColorField.Text)
+                            )
+                        )
+                    },
                     trailingContent = {
                         Box(
                             modifier = Modifier
                                 .size(28.dp)
                                 .clip(CircleShape)
-                                .background(Color(CoverConfig.coverTextColor))
+                                .background(Color(settings.textColor))
                                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
                         )
                     }
@@ -176,14 +212,20 @@ fun CoverConfigScreen(
 
                 ClickableSettingItem(
                     title = stringResource(R.string.text_shadow_color),
-                    option = "#${Integer.toHexString(CoverConfig.coverShadowColor).uppercase()}",
-                    onClick = { showColorPickerByField = "coverShadowColor" },
+                    option = "#${Integer.toHexString(settings.shadowColor).uppercase()}",
+                    onClick = {
+                        onIntent(
+                            CoverConfigIntent.ShowSheet(
+                                CoverConfigSheet.Color(CoverColorField.Shadow)
+                            )
+                        )
+                    },
                     trailingContent = {
                         Box(
                             modifier = Modifier
                                 .size(28.dp)
                                 .clip(CircleShape)
-                                .background(Color(CoverConfig.coverShadowColor))
+                                .background(Color(settings.shadowColor))
                                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
                         )
                     }
@@ -192,42 +234,40 @@ fun CoverConfigScreen(
                 SwitchSettingItem(
                     title = stringResource(R.string.cover_show_name),
                     description = stringResource(R.string.cover_show_name_summary),
-                    checked = CoverConfig.coverShowName,
-                    onCheckedChange = { viewModel.updateShowName(it) }
+                    checked = settings.showName,
+                    onCheckedChange = { value ->
+                        onIntent(CoverConfigIntent.SetShowName(value))
+                    }
                 )
 
                 SwitchSettingItem(
                     title = stringResource(R.string.cover_show_author),
                     description = stringResource(R.string.cover_show_author_summary),
-                    checked = CoverConfig.coverShowAuthor,
-                    enabled = CoverConfig.coverShowName,
-                    onCheckedChange = { viewModel.updateShowAuthor(it) }
+                    checked = settings.showAuthor,
+                    enabled = settings.showName,
+                    onCheckedChange = { value ->
+                        onIntent(CoverConfigIntent.SetShowAuthor(value))
+                    }
                 )
             }
 
-                SplicedColumnGroup(title = stringResource(R.string.night)) {
-                val coverCount =
-                    CoverConfig.defaultCoverDark.split(",").filter { it.isNotBlank() }.size
-                ClickableSettingItem(
-                    title = stringResource(R.string.default_cover),
-                    description = if (coverCount > 0) {
-                        stringResource(R.string.cover_selected_images_count, coverCount)
-                    } else {
-                        stringResource(R.string.select_image)
-                    },
-                    onClick = { manageKey = PreferKey.defaultCoverDark }
-                )
-
+            SplicedColumnGroup(title = stringResource(R.string.night)) {
                 ClickableSettingItem(
                     title = stringResource(R.string.text_color),
-                    option = "#${Integer.toHexString(CoverConfig.coverTextColorN).uppercase()}",
-                    onClick = { showColorPickerByField = "coverTextColorN" },
+                    option = "#${Integer.toHexString(settings.textColorDark).uppercase()}",
+                    onClick = {
+                        onIntent(
+                            CoverConfigIntent.ShowSheet(
+                                CoverConfigSheet.Color(CoverColorField.TextDark)
+                            )
+                        )
+                    },
                     trailingContent = {
                         Box(
                             modifier = Modifier
                                 .size(28.dp)
                                 .clip(CircleShape)
-                                .background(Color(CoverConfig.coverTextColorN))
+                                .background(Color(settings.textColorDark))
                                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
                         )
                     }
@@ -235,14 +275,20 @@ fun CoverConfigScreen(
 
                 ClickableSettingItem(
                     title = stringResource(R.string.text_shadow_color),
-                    option = "#${Integer.toHexString(CoverConfig.coverShadowColorN).uppercase()}",
-                    onClick = { showColorPickerByField = "coverShadowColorN" },
+                    option = "#${Integer.toHexString(settings.shadowColorDark).uppercase()}",
+                    onClick = {
+                        onIntent(
+                            CoverConfigIntent.ShowSheet(
+                                CoverConfigSheet.Color(CoverColorField.ShadowDark)
+                            )
+                        )
+                    },
                     trailingContent = {
                         Box(
                             modifier = Modifier
                                 .size(28.dp)
                                 .clip(CircleShape)
-                                .background(Color(CoverConfig.coverShadowColorN))
+                                .background(Color(settings.shadowColorDark))
                                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
                         )
                     }
@@ -251,16 +297,20 @@ fun CoverConfigScreen(
                 SwitchSettingItem(
                     title = stringResource(R.string.cover_show_name),
                     description = stringResource(R.string.cover_show_name_summary),
-                    checked = CoverConfig.coverShowNameN,
-                    onCheckedChange = { viewModel.updateShowName(it, true) }
+                    checked = settings.showNameDark,
+                    onCheckedChange = { value ->
+                        onIntent(CoverConfigIntent.SetShowNameDark(value))
+                    }
                 )
 
                 SwitchSettingItem(
                     title = stringResource(R.string.cover_show_author),
                     description = stringResource(R.string.cover_show_author_summary),
-                    checked = CoverConfig.coverShowAuthorN,
-                    enabled = CoverConfig.coverShowNameN,
-                    onCheckedChange = { viewModel.updateShowAuthor(it, true) }
+                    checked = settings.showAuthorDark,
+                    enabled = settings.showNameDark,
+                    onCheckedChange = { value ->
+                        onIntent(CoverConfigIntent.SetShowAuthorDark(value))
+                    }
                 )
                 }
             }
@@ -268,40 +318,46 @@ fun CoverConfigScreen(
     }
 
     CoverRuleConfigSheet(
-        show = showCoverRuleSheet,
-        onDismissRequest = { showCoverRuleSheet = false }
+        show = state.activeSheet == CoverConfigSheet.Rule,
+        state = state.rule,
+        onIntent = onIntent,
+        onDismissRequest = { onIntent(CoverConfigIntent.DismissSheet) },
     )
 
-    manageKey?.let { key ->
-        CoverManageSheet(
+    if (state.activeSheet == CoverConfigSheet.Album) {
+        CoverAlbumSelectSheet(
             show = true,
-            preferenceKey = key,
-            onDismissRequest = { manageKey = null },
-            viewModel = viewModel
+            state = albumState,
+            onSelect = { onIntent(CoverConfigIntent.SelectAlbum(it)) },
+            onManage = {
+                onIntent(CoverConfigIntent.DismissSheet)
+                onNavigateToCoverAlbums()
+            },
+            onDismissRequest = { onIntent(CoverConfigIntent.DismissSheet) },
         )
     }
 
-    showColorPickerByField?.let { field ->
+    (state.activeSheet as? CoverConfigSheet.Color)?.field?.let { field ->
         val initialColor = when (field) {
-            "coverTextColor" -> CoverConfig.coverTextColor
-            "coverShadowColor" -> CoverConfig.coverShadowColor
-            "coverTextColorN" -> CoverConfig.coverTextColorN
-            "coverShadowColorN" -> CoverConfig.coverShadowColorN
-            else -> 0
+            CoverColorField.Text -> settings.textColor
+            CoverColorField.Shadow -> settings.shadowColor
+            CoverColorField.TextDark -> settings.textColorDark
+            CoverColorField.ShadowDark -> settings.shadowColorDark
         }
 
         ColorPickerSheet(
-            show = showColorPickerByField != null,
+            show = true,
             initialColor = initialColor,
-            onDismissRequest = { showColorPickerByField = null },
+            onDismissRequest = { onIntent(CoverConfigIntent.DismissSheet) },
             onColorSelected = { color ->
                 when (field) {
-                    "coverTextColor" -> CoverConfig.coverTextColor = color
-                    "coverShadowColor" -> CoverConfig.coverShadowColor = color
-                    "coverTextColorN" -> CoverConfig.coverTextColorN = color
-                    "coverShadowColorN" -> CoverConfig.coverShadowColorN = color
+                    CoverColorField.Text -> onIntent(CoverConfigIntent.SetTextColor(color))
+                    CoverColorField.Shadow -> onIntent(CoverConfigIntent.SetShadowColor(color))
+                    CoverColorField.TextDark -> onIntent(CoverConfigIntent.SetTextColorDark(color))
+                    CoverColorField.ShadowDark ->
+                        onIntent(CoverConfigIntent.SetShadowColorDark(color))
                 }
-                viewModel.updateCoverStyle()
+                onIntent(CoverConfigIntent.DismissSheet)
             }
         )
     }

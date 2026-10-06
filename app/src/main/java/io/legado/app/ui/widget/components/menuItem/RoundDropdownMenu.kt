@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.theme.ProvideAppContentColor
+import io.legado.app.ui.theme.ProvideAppDensity
 import io.legado.app.ui.theme.ThemeResolver
 import io.legado.app.ui.theme.rememberOpaqueColorScheme
 import top.yukonga.miuix.kmp.basic.ListPopupColumn
@@ -53,18 +54,21 @@ fun RoundDropdownMenu(
             onDismissRequest = onDismissRequest,
             popupModifier = modifier
         ) {
-            ProvideAppContentColor(popupContentColor) {
-                ListPopupColumn {
-                    Column(modifier = Modifier.background(popupContainerColor)) {
-                        Spacer(Modifier.height(12.dp))
-                        content(onDismissRequest)
-                        Spacer(Modifier.height(12.dp))
+            ProvideAppDensity {
+                ProvideAppContentColor(popupContentColor) {
+                    ListPopupColumn {
+                        Column(modifier = Modifier.background(popupContainerColor)) {
+                            Spacer(Modifier.height(12.dp))
+                            content(onDismissRequest)
+                            Spacer(Modifier.height(12.dp))
+                        }
                     }
                 }
             }
         }
     } else {
         val colorScheme = rememberOpaqueColorScheme()
+        val popupContainerColor = LegadoTheme.colorScheme.surfaceContainerLow
 
         DropdownMenu(
             expanded = expanded,
@@ -72,18 +76,20 @@ fun RoundDropdownMenu(
             modifier = modifier,
             shape = shape,
             shadowElevation = shadowElevation,
-            containerColor = colorScheme.surfaceContainerLow
+            containerColor = popupContainerColor
         ) {
-            MaterialExpressiveTheme(
-                colorScheme = colorScheme,
-                typography = Typography(),
-                motionScheme = MotionScheme.expressive(),
-                shapes = Shapes()
-            ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(verticalSpacing)
+            ProvideAppDensity {
+                MaterialExpressiveTheme(
+                    colorScheme = colorScheme,
+                    typography = Typography(),
+                    motionScheme = MotionScheme.expressive(),
+                    shapes = Shapes()
                 ) {
-                    content(onDismissRequest)
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(verticalSpacing)
+                    ) {
+                        content(onDismissRequest)
+                    }
                 }
             }
         }
@@ -112,23 +118,26 @@ fun RoundDropdownMenuLazy(
             onDismissRequest = onDismissRequest,
             popupModifier = modifier
         ) {
-            ProvideAppContentColor(popupContentColor) {
-                ListPopupColumn {
-                    LazyColumn(
-                        modifier = Modifier
-                            .background(popupContainerColor)
-                            .heightIn(max = maxHeight),
-                        verticalArrangement = Arrangement.spacedBy(verticalSpacing)
-                    ) {
-                        item { Spacer(Modifier.height(12.dp)) }
-                        content(onDismissRequest)
-                        item { Spacer(Modifier.height(12.dp)) }
+            ProvideAppDensity {
+                ProvideAppContentColor(popupContentColor) {
+                    ListPopupColumn {
+                        LazyColumn(
+                            modifier = Modifier
+                                .background(popupContainerColor)
+                                .heightIn(max = maxHeight),
+                            verticalArrangement = Arrangement.spacedBy(verticalSpacing)
+                        ) {
+                            item { Spacer(Modifier.height(12.dp)) }
+                            content(onDismissRequest)
+                            item { Spacer(Modifier.height(12.dp)) }
+                        }
                     }
                 }
             }
         }
     } else {
         val colorScheme = rememberOpaqueColorScheme()
+        val popupContainerColor = LegadoTheme.colorScheme.surfaceContainerLow
 
         DropdownMenu(
             expanded = expanded,
@@ -136,19 +145,21 @@ fun RoundDropdownMenuLazy(
             modifier = modifier,
             shape = shape,
             shadowElevation = shadowElevation,
-            containerColor = colorScheme.surfaceContainerLow
+            containerColor = popupContainerColor
         ) {
-            MaterialExpressiveTheme(
-                colorScheme = colorScheme,
-                typography = Typography(),
-                motionScheme = MotionScheme.expressive(),
-                shapes = Shapes()
-            ) {
-                LazyColumn(
-                    modifier = Modifier.heightIn(max = maxHeight),
-                    verticalArrangement = Arrangement.spacedBy(verticalSpacing)
+            ProvideAppDensity {
+                MaterialExpressiveTheme(
+                    colorScheme = colorScheme,
+                    typography = Typography(),
+                    motionScheme = MotionScheme.expressive(),
+                    shapes = Shapes()
                 ) {
-                    content(onDismissRequest)
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = maxHeight),
+                        verticalArrangement = Arrangement.spacedBy(verticalSpacing)
+                    ) {
+                        content(onDismissRequest)
+                    }
                 }
             }
         }

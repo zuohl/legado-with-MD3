@@ -2,464 +2,122 @@ package io.legado.app.ui.config.readConfig
 
 import io.legado.app.BuildConfig
 import io.legado.app.constant.PreferKey
-import io.legado.app.data.repository.ReadPreferences
-import io.legado.app.ui.config.prefDelegate
-import io.legado.app.ui.config.themeConfig.ThemeConfig
+import io.legado.app.domain.gateway.AppShellSettingsGateway
+import io.legado.app.domain.gateway.BackupSettingsGateway
+import io.legado.app.domain.gateway.DownloadCacheSettingsGateway
+import io.legado.app.domain.gateway.OtherSettingsGateway
+import io.legado.app.domain.gateway.ReadAloudSettingsGateway
+import io.legado.app.domain.gateway.ReadSettingsGateway
+import io.legado.app.domain.gateway.ThemeSettingsGateway
+import io.legado.app.help.config.AppConfigStore
+import io.legado.app.help.config.compatDsBoolean
 import io.legado.app.utils.isNightMode
 import io.legado.app.utils.sysConfiguration
+import org.koin.core.context.GlobalContext
 
+/**
+ * 已废弃的同步只读阅读配置门面。
+ *
+ * 新代码应注入对应 Gateway；此对象只服务尚未迁移的 View、渲染器与启动路径。
+ */
+@Deprecated("使用 ReadSettingsGateway / ReadAloudSettingsGateway.currentSettings")
 object ReadConfig {
+    private val read get() = GlobalContext.get().get<ReadSettingsGateway>().currentSettings
+    private val aloud get() = GlobalContext.get().get<ReadAloudSettingsGateway>().currentSettings
+    private val backup get() = GlobalContext.get().get<BackupSettingsGateway>().currentSettings
+    private val cache get() = GlobalContext.get().get<DownloadCacheSettingsGateway>().currentSettings
+    private val other get() = GlobalContext.get().get<OtherSettingsGateway>().currentSettings
+    private val shell get() = GlobalContext.get().get<AppShellSettingsGateway>().currentSettings
+    private val theme get() = GlobalContext.get().get<ThemeSettingsGateway>().currentSettings
+    private val preferences get() = AppConfigStore.preferences
 
-    val isEInkMode: Boolean
-        get() = ThemeConfig.appTheme == "4"
-
-    var isNightTheme: Boolean
-        get() = when (ThemeConfig.themeMode) {
+    val isEInkMode get() = theme.appTheme == "4"
+    val isNightTheme: Boolean
+        get() = when (shell.themeMode) {
             "1" -> false
             "2" -> true
             else -> sysConfiguration.isNightMode
         }
-        set(value) {
-            val newMode = if (value) "2" else "1"
-            if (ThemeConfig.themeMode != newMode) {
-                ThemeConfig.themeMode = newMode
-            }
-        }
-
-    var useAntiAlias by prefDelegate(
-        PreferKey.antiAlias,
-        false
-    )
-
-    val enableReview: Boolean
-        get() = BuildConfig.DEBUG && enableReviewPref
-
-    private var enableReviewPref by prefDelegate(
-        PreferKey.enableReview,
-        false
-    )
-
-    var systemTypefaces by prefDelegate(
-        PreferKey.systemTypefaces,
-        0
-    )
-
-    var readUrlInBrowser by prefDelegate(
-        PreferKey.readUrlOpenInBrowser,
-        false
-    )
-
-    var contentSelectSpeakMod by prefDelegate(
-        PreferKey.contentSelectSpeakMod,
-        0
-    )
-
-    var syncBookProgress by prefDelegate(
-        PreferKey.syncBookProgress,
-        true
-    )
-
-    var syncBookProgressPlus by prefDelegate(
-        PreferKey.syncBookProgressPlus,
-        false
-    )
-
-    var preDownloadNum by prefDelegate(
-        PreferKey.preDownloadNum,
-        10
-    )
-
-    var imageRetainNum by prefDelegate(
-        PreferKey.imageRetainNum,
-        0
-    )
-
-    var audioCacheCleanTimeOrgin by prefDelegate(
-        PreferKey.audioCacheCleanTime,
-        10
-    )
-
-    val audioCacheCleanTime: Long
-        get() = audioCacheCleanTimeOrgin * 60 * 1000L
-
-    var audioPreDownloadNum by prefDelegate(
-        PreferKey.audioPreDownloadNum,
-        10
-    )
-
-    private const val defaultSpeechRate = 5
-
-    val speechRatePlay: Int
-        get() = if (ttsFollowSys) defaultSpeechRate else ttsSpeechRate
-
-    fun syncReadPreferences(preferences: ReadPreferences) {
-        optimizeRender = preferences.optimizeRender
-        adaptSpecialStyle = preferences.adaptSpecialStyle
-        useUnderline = preferences.useUnderline
-        brightnessVwPos = preferences.brightnessVwPos
-        readBrightness = preferences.readBrightness
-        brightnessAuto = preferences.brightnessAuto
-        chineseConverterType = preferences.chineseConverterType
-        clickActionTL = preferences.clickActionTL
-        clickActionTC = preferences.clickActionTC
-        clickActionTR = preferences.clickActionTR
-        clickActionML = preferences.clickActionML
-        clickActionMC = preferences.clickActionMC
-        clickActionMR = preferences.clickActionMR
-        clickActionBL = preferences.clickActionBL
-        clickActionBC = preferences.clickActionBC
-        clickActionBR = preferences.clickActionBR
-        screenOrientation = preferences.screenOrientation
-        noAnimScrollPage = preferences.noAnimScrollPage
-        tocUiUseReplace = preferences.tocUiUseReplace
-        tocCountWords = preferences.tocCountWords
-        autoChangeSource = preferences.autoChangeSource
-        clickImgWay = preferences.clickImgWay
-        doubleHorizontalPage = preferences.doubleHorizontalPage
-        progressBarBehavior = preferences.progressBarBehavior
-        keyPageOnLongPress = preferences.keyPageOnLongPress
-        volumeKeyPage = preferences.volumeKeyPage
-        volumeKeyPageOnPlay = preferences.volumeKeyPageOnPlay
-        mouseWheelPage = preferences.mouseWheelPage
-        paddingDisplayCutouts = preferences.paddingDisplayCutouts
-        pageTouchSlop = preferences.pageTouchSlop
-        showReadTitleAddition = preferences.showReadTitleAddition
-        titleBarMode = preferences.titleBarMode
-        menuAlpha = preferences.menuAlpha
-        readSliderMode = preferences.readSliderMode
-        readBarStyleFollowPage = preferences.readBarStyleFollowPage
-        readBarStyle = preferences.readBarStyle
-        defaultSourceChangeAll = preferences.defaultSourceChangeAll
-        sliderVibrator = preferences.sliderVibrator
-        selectVibrator = preferences.selectVibrator
-    }
-
-    var tocUiUseReplace by prefDelegate(
-        PreferKey.tocUiUseReplace,
-        false
-    )
-
-    var tocCountWords by prefDelegate(
-        PreferKey.tocCountWords,
-        true
-    )
-
-    var screenOrientation by prefDelegate(
-        PreferKey.screenOrientation,
-        "0"
-    )
-
-    var keepLight by prefDelegate(
-        PreferKey.keepLight,
-        "0"
-    )
-
-    var hideStatusBar by prefDelegate(
-        PreferKey.hideStatusBar,
-        false
-    )
-
-    var hideNavigationBar by prefDelegate(
-        PreferKey.hideNavigationBar,
-        false
-    )
-
-    var paddingDisplayCutouts by prefDelegate(
-        PreferKey.paddingDisplayCutouts,
-        false
-    )
-
-    var titleBarMode by prefDelegate(
-        PreferKey.titleBarMode,
-        "1"
-    )
-
-    var menuAlpha by prefDelegate(
-        PreferKey.menuAlpha,
-        100
-    )
-
-    var readBodyToLh by prefDelegate(
-        PreferKey.readBodyToLh,
-        true
-    )
-
-    var defaultSourceChangeAll by prefDelegate(
-        PreferKey.defaultSourceChangeAll,
-        true
-    )
-
-    var textFullJustify by prefDelegate(
-        PreferKey.textFullJustify,
-        true
-    )
-
-    var textBottomJustify by prefDelegate(
-        PreferKey.textBottomJustify,
-        true
-    )
-
-    var adaptSpecialStyle by prefDelegate(
-        PreferKey.adaptSpecialStyle,
-        true
-    )
-
-    var useZhLayout by prefDelegate(
-        PreferKey.useZhLayout,
-        false
-    )
-
-    var showBrightnessView by prefDelegate(
-        PreferKey.showBrightnessView,
-        "1"
-    )
-
-    var brightnessVwPos by prefDelegate(
-        PreferKey.brightnessVwPos,
-        "1"
-    )
-
-    var readBrightness by prefDelegate(
-        PreferKey.brightness,
-        100
-    )
-
-    var brightnessAuto by prefDelegate(
-        PreferKey.brightnessAuto,
-        false
-    )
-
-    var useUnderline by prefDelegate(
-        PreferKey.useUnderline,
-        false
-    )
-
-    var readSliderMode by prefDelegate(
-        PreferKey.readSliderMode,
-        "0"
-    )
-
-    var doubleHorizontalPage by prefDelegate(
-        PreferKey.doublePageHorizontal,
-        "0"
-    )
-
-    var progressBarBehavior by prefDelegate(
-        PreferKey.progressBarBehavior,
-        "page"
-    )
-
-    var mouseWheelPage by prefDelegate(
-        PreferKey.mouseWheelPage,
-        true
-    )
-
-    var volumeKeyPage by prefDelegate(
-        PreferKey.volumeKeyPage,
-        true
-    )
-
-    var volumeKeyPageOnPlay by prefDelegate(
-        PreferKey.volumeKeyPageOnPlay,
-        true
-    )
-
-    var keyPageOnLongPress by prefDelegate(
-        PreferKey.keyPageOnLongPress,
-        false
-    )
-
-    var pageTouchSlop by prefDelegate(
-        PreferKey.pageTouchSlop,
-        0
-    )
-
-    var sliderVibrator by prefDelegate(
-        PreferKey.sliderVibrator,
-        false
-    )
-
-    var selectVibrator by prefDelegate(
-        PreferKey.selectVibrator,
-        false
-    )
-
-    var autoChangeSource by prefDelegate(
-        PreferKey.autoChangeSource,
-        true
-    )
-
-    var selectText by prefDelegate(
-        PreferKey.selectText,
-        true
-    )
-
-    var noAnimScrollPage by prefDelegate(
-        PreferKey.noAnimScrollPage,
-        false
-    )
-
-    var clickImgWay by prefDelegate(
-        PreferKey.clickImgWay,
-        "2"
-    )
-
-    var optimizeRender by prefDelegate(
-        PreferKey.optimizeRender,
-        false
-    )
-
-    var disableReturnKey by prefDelegate(
-        PreferKey.disableReturnKey,
-        false
-    )
-
-    var expandTextMenu by prefDelegate(
-        PreferKey.expandTextMenu,
-        false
-    )
-
-    var showReadTitleAddition by prefDelegate(
-        PreferKey.showReadTitleAddition,
-        true
-    )
-
-    var clickActionTL by prefDelegate(
-        PreferKey.clickActionTL,
-        2
-    )
-
-    var clickActionTC by prefDelegate(
-        PreferKey.clickActionTC,
-        2
-    )
-
-    var clickActionTR by prefDelegate(
-        PreferKey.clickActionTR,
-        1
-    )
-
-    var clickActionML by prefDelegate(
-        PreferKey.clickActionML,
-        2
-    )
-
-    var clickActionMC by prefDelegate(
-        PreferKey.clickActionMC,
-        0
-    )
-
-    var clickActionMR by prefDelegate(
-        PreferKey.clickActionMR,
-        1
-    )
-
-    var clickActionBL by prefDelegate(
-        PreferKey.clickActionBL,
-        2
-    )
-
-    var clickActionBC by prefDelegate(
-        PreferKey.clickActionBC,
-        1
-    )
-
-    var clickActionBR by prefDelegate(
-        PreferKey.clickActionBR,
-        1
-    )
-
-    fun hasMenuClickArea(): Boolean {
-        return clickActionTL * clickActionTC * clickActionTR *
-                clickActionML * clickActionMC * clickActionMR *
-                clickActionBL * clickActionBC * clickActionBR == 0
-    }
-
-    fun detectClickArea() {
-        if (!hasMenuClickArea()) {
-            clickActionMC = 0
-        }
-    }
-
-    var readBarStyleFollowPage by prefDelegate(
-        PreferKey.readBarStyleFollowPage,
-        false
-    )
-
-    var readBarStyle by prefDelegate(
-        PreferKey.readBarStyle,
-        0
-    )
-
-    var prevKeys by prefDelegate(
-        PreferKey.prevKeys,
-        ""
-    )
-
-    var nextKeys by prefDelegate(
-        PreferKey.nextKeys,
-        ""
-    )
-
-    // --- Read Aloud ---
-
-    var ignoreAudioFocus by prefDelegate(
-        PreferKey.ignoreAudioFocus,
-        false
-    )
-
-    var pauseReadAloudWhilePhoneCalls by prefDelegate(
-        PreferKey.pauseReadAloudWhilePhoneCalls,
-        false
-    )
-
-    var readAloudWakeLock by prefDelegate(
-        PreferKey.readAloudWakeLock,
-        false
-    )
-
-    var mediaButtonPerNext by prefDelegate(
-        "mediaButtonPerNext",
-        false
-    )
-
-    var readAloudByPage by prefDelegate(
-        PreferKey.readAloudByPage,
-        false
-    )
-
-    var systemMediaControlCompatibilityChange by prefDelegate(
-        PreferKey.systemMediaControlCompatibilityChange,
-        true
-    )
-
-    var streamReadAloudAudio by prefDelegate(
-        PreferKey.streamReadAloudAudio,
-        false
-    )
-
-    var ttsTimer by prefDelegate(
-        PreferKey.ttsTimer,
-        0
-    )
-
-    var ttsFollowSys by prefDelegate(
-        PreferKey.ttsFollowSys,
-        true
-    )
-
-    var ttsSpeechRate by prefDelegate(
-        PreferKey.ttsSpeechRate,
-        5
-    )
-
-    var ttsEngine by prefDelegate<String?>(
-        PreferKey.ttsEngine,
-        null
-    )
-
-    var chineseConverterType by prefDelegate(
-        PreferKey.chineseConverterType,
-        0
-    )
+    val enableReview get() = BuildConfig.DEBUG && (preferences.compatDsBoolean(PreferKey.enableReview) ?: false)
+    val useAntiAlias get() = other.antiAlias
+    val systemTypefaces get() = read.systemTypefaces
+    val doubleHorizontalPage get() = read.doubleHorizontalPage
+    val adaptSpecialStyle get() = read.adaptSpecialStyle
+    val useUnderline get() = read.useUnderline
+    val optimizeRender get() = read.optimizeRender
+    val noAnimScrollPage get() = read.noAnimScrollPage
+    val paddingDisplayCutouts get() = read.paddingDisplayCutouts
+    val pageTouchSlop get() = read.pageTouchSlop
+    val selectText get() = read.selectText
+    val clickImgWay get() = read.clickImgWay
+    val chineseConverterType get() = read.chineseConverterType
+
+    val titleBarMode get() = read.titleBarMode
+    val readBarStyleFollowPage get() = read.readBarStyleFollowPage
+    val readBarStyle get() = read.readBarStyle
+    val progressBarBehavior get() = read.progressBarBehavior
+    val showSelectMenuIcon get() = read.showSelectMenuIcon
+    val textSelectMenuConfig get() = read.textSelectMenuConfig
+    val lastMarkingStyle get() = read.lastMarkingStyle
+    val showReadTitleAddition get() = read.showReadTitleAddition
+    val clickActionTL get() = read.clickActionTL
+    val clickActionTC get() = read.clickActionTC
+    val clickActionTR get() = read.clickActionTR
+    val clickActionML get() = read.clickActionML
+    val clickActionMC get() = read.clickActionMC
+    val clickActionMR get() = read.clickActionMR
+    val clickActionBL get() = read.clickActionBL
+    val clickActionBC get() = read.clickActionBC
+    val clickActionBR get() = read.clickActionBR
+
+    val mouseWheelPage get() = read.mouseWheelPage
+    val volumeKeyPage get() = read.volumeKeyPage
+    val volumeKeyPageOnPlay get() = read.volumeKeyPageOnPlay
+    val keyPageOnLongPress get() = read.keyPageOnLongPress
+    val swipeToAddBookmark get() = read.swipeToAddBookmark
+    val bookmarkBadgeImage get() = read.bookmarkBadgeImage
+    val bookmarkBadgeSize get() = read.bookmarkBadgeSize
+    val sliderVibrator get() = read.sliderVibrator
+    val useNewTocSheet get() = read.useNewTocSheet
+    val maxLengthWithNoToc get() = read.maxLengthWithNoToc
+    val selectVibrator get() = read.selectVibrator
+
+    val speechRatePlay get() = if (aloud.ttsFollowSys) 5 else aloud.ttsSpeechRate
+    val ttsEngine get() = aloud.ttsEngine
+    val ttsFollowSys get() = aloud.ttsFollowSys
+    val ttsSpeechRate get() = aloud.ttsSpeechRate
+    val ttsTimer get() = aloud.ttsTimer
+    val finishCurrentChapterAfterTimer get() = aloud.finishCurrentChapterAfterTimer
+    val readAloudTimerMode get() = aloud.timerMode
+    val readAloudTimerChapters get() = aloud.timerChapters
+    val ttsParagraphInterval get() = aloud.ttsParagraphInterval
+    val ignoreAudioFocus get() = aloud.ignoreAudioFocus
+    val pauseReadAloudWhilePhoneCalls get() = aloud.pauseReadAloudWhilePhoneCalls
+    val readAloudWakeLock get() = aloud.readAloudWakeLock
+    val mediaButtonPerNext get() = aloud.mediaButtonPerNext
+    val contentSplitMode get() = aloud.contentSplitMode
+    val contentSplitSymbols get() = aloud.contentSplitSymbols
+    val androidMediaControlEnabled get() = aloud.androidMediaControlEnabled
+    val systemMediaControlCompatibilityChange get() = aloud.systemMediaControlCompatibilityChange
+    val streamReadAloudAudio get() = aloud.streamReadAloudAudio
+    val contentSelectSpeakMod get() = aloud.contentSelectSpeakMode
+    val audioPreDownloadNum get() = aloud.audioPreDownloadNum
+    val audioCacheCleanTime get() = aloud.audioCacheCleanTime * 60 * 1000L
+    val speechAnalysisMode get() = aloud.speechAnalysisMode
+    val speechAnalysisReasoningLevel get() = aloud.speechAnalysisReasoningLevel
+    val useMultiSpeaker get() = aloud.useMultiSpeaker
+    val defaultInterface get() = aloud.defaultInterface
+
+    val syncBookProgress get() = backup.syncBookProgress
+    val syncBookProgressPlus get() = backup.syncBookProgressPlus
+    val autoChangeSource get() = read.autoChangeSource
+    val autoSuggestDayNight get() = read.autoSuggestDayNight
+    val defaultSourceChangeAll get() = read.defaultSourceChangeAll
+    val readUrlInBrowser get() = read.readUrlInBrowser
+    val tocUiUseReplace get() = read.tocUiUseReplace
+    val tocCountWords get() = read.tocCountWords
+    val preDownloadNum get() = read.preDownloadNum
+    val imageRetainNum get() = cache.imageRetainNum
+    val keepLight get() = read.keepLight
+    val screenOrientation get() = read.screenOrientation
 }

@@ -3,7 +3,9 @@ package io.legado.app.ui.widget.components.navigation
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
@@ -23,9 +25,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.HorizontalAlignmentLine
 import androidx.compose.ui.layout.Measured
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import io.legado.app.ui.config.themeConfig.ThemeConfig
+import androidx.compose.ui.unit.sp
+import io.legado.app.domain.model.settings.customColors
 import io.legado.app.ui.theme.LegadoTheme
+import io.legado.app.ui.theme.LocalAppUiConfiguration
 import io.legado.app.ui.theme.LocalHazeState
 import io.legado.app.ui.theme.ThemeResolver
 import io.legado.app.ui.theme.regularHazeEffect
@@ -44,12 +50,17 @@ fun AppNavigationBar(
     content: @Composable RowScope.() -> Unit
 ) {
     val isMiuix = ThemeResolver.isMiuixEngine(LegadoTheme.composeEngine)
+    val configuration = LocalAppUiConfiguration.current
+    val themeSettings = configuration.theme
     val miuixMode = when {
         !showLabel -> NavigationBarDisplayMode.IconOnly
         alwaysShowLabel -> NavigationBarDisplayMode.IconAndText
         else -> NavigationBarDisplayMode.IconWithSelectedLabel
     }
-    val opacity = (ThemeConfig.bottomBarOpacity.coerceIn(0, 100)) / 100f
+    val opacity = (themeSettings.bottomBarOpacity.coerceIn(0, 100)) / 100f
+    val customSecondaryColor = themeSettings.customColors(LegadoTheme.isDark).secondary
+    val hasCustomSecondary = themeSettings.appTheme == "12" &&
+        themeSettings.enableDeepPersonalization && customSecondaryColor != 0
     val hazeState = LocalHazeState.current
     val hazeModifier = if (hazeState != null) {
         Modifier.regularHazeEffect(hazeState)
@@ -59,8 +70,8 @@ fun AppNavigationBar(
 
     if (isMiuix) {
         val baseColor =
-            if (ThemeConfig.enableDeepPersonalization && ThemeConfig.secondaryThemeColor != 0) {
-                Color(ThemeConfig.secondaryThemeColor)
+            if (hasCustomSecondary) {
+                Color(customSecondaryColor)
             } else {
                 GlassDefaults.glassColor(
                     noBlurColor = MiuixTheme.colorScheme.surface,
@@ -77,8 +88,8 @@ fun AppNavigationBar(
         )
     } else {
         val baseColor =
-            if (ThemeConfig.enableDeepPersonalization && ThemeConfig.secondaryThemeColor != 0) {
-                Color(ThemeConfig.secondaryThemeColor)
+            if (hasCustomSecondary) {
+                Color(customSecondaryColor)
             } else {
                 GlassDefaults.glassColor(
                     noBlurColor = BottomAppBarDefaults.containerColor,
@@ -119,7 +130,8 @@ fun RowScope.AppNavigationBarItem(
     useCustomIcon: Boolean = false,
 ) {
     val isMiuix = ThemeResolver.isMiuixEngine(LegadoTheme.composeEngine)
-    val useCustomIconBox = useCustomIcon && ThemeConfig.useFloatingBottomBar
+    val useCustomIconBox =
+        useCustomIcon && LocalAppUiConfiguration.current.appShell.useFloatingBottomBar
 
     if (useCustomIconBox) {
         Box(
@@ -144,6 +156,15 @@ fun RowScope.AppNavigationBarItem(
             }
             m3Icon()
         }
+    } else if (isMiuix && useCustomIcon) {
+        MiuixCustomNavigationBarItem(
+            selected = selected,
+            onClick = onClick,
+            modifier = modifier,
+            labelString = labelString,
+            showLabel = m3ShowLabel && (m3AlwaysShowLabel || selected),
+            icon = m3Icon,
+        )
     } else if (isMiuix) {
         MiuixNavigationBarItem(
             selected = selected,
@@ -165,5 +186,42 @@ fun RowScope.AppNavigationBarItem(
                 }
             } else null
         )
+    }
+}
+
+@Composable
+private fun RowScope.MiuixCustomNavigationBarItem(
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier,
+    labelString: String,
+    showLabel: Boolean,
+    icon: @Composable () -> Unit,
+) {
+    val itemColor = MiuixTheme.colorScheme.onSurfaceContainer.let { color ->
+        if (selected) color else color.copy(alpha = 0.4f)
+    }
+    Column(
+        modifier = modifier
+            .height(64.dp)
+            .weight(1f)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        icon()
+        if (showLabel) {
+            AnimatedText(
+                text = labelString,
+                color = itemColor,
+                fontSize = 12.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }

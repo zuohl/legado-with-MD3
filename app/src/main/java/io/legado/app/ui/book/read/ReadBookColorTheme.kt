@@ -14,8 +14,9 @@ import androidx.core.graphics.toColorInt
 import io.legado.app.data.repository.ReadPreferences
 import io.legado.app.help.config.ReadBookConfig
 import io.legado.app.help.config.ReadStyleResolver
-import io.legado.app.ui.config.themeConfig.ThemeConfig
+import io.legado.app.model.ReadSessionState
 import io.legado.app.ui.theme.LegadoTheme
+import io.legado.app.ui.theme.LocalAppUiConfiguration
 import io.legado.app.ui.theme.ProvideThemeOverride
 import io.legado.app.ui.theme.ThemeOverrideState
 import io.legado.app.ui.theme.ThemeResolver
@@ -29,12 +30,14 @@ import kotlinx.coroutines.withContext
 fun ReadBookColorTheme(
     styleConfig: ReadBookStyleConfig,
     preferences: ReadPreferences,
+    isDarkTheme: Boolean,
     content: @Composable () -> Unit,
 ) {
     ProvideThemeOverride(
         theme = rememberReadBookColorTheme(
             styleConfig = styleConfig,
             preferences = preferences,
+            isAppDark = isDarkTheme,
         ),
         content = content
     )
@@ -44,14 +47,16 @@ fun ReadBookColorTheme(
 private fun rememberReadBookColorTheme(
     styleConfig: ReadBookStyleConfig,
     preferences: ReadPreferences,
+    isAppDark: Boolean,
 ): ThemeOverrideState? {
-    val isAppDark = LegadoTheme.isDark
+    val paletteStyle = preferences.readMenuPaletteStyle
     return when (preferences.readBarStyle) {
-        1 -> rememberReadBackgroundTheme(styleConfig, isAppDark)
+        1 -> rememberReadBackgroundTheme(styleConfig, isAppDark, paletteStyle)
         2 -> rememberCustomReadMenuTheme(
             styleConfig = styleConfig,
             preferences = preferences,
             isAppDark = isAppDark,
+            paletteStyle = paletteStyle,
         )
         else -> null
     }
@@ -61,30 +66,45 @@ private fun rememberReadBookColorTheme(
 private fun rememberReadBackgroundTheme(
     styleConfig: ReadBookStyleConfig,
     isAppDark: Boolean,
-): ThemeOverrideState? {
+    paletteStyle: String,
+): ThemeOverrideState {
+    val fallbackSeedColor = LegadoTheme.seedColor
+        .takeUnless { it == Color.Unspecified }
+        ?: LegadoTheme.colorScheme.primary
     val background = remember(styleConfig, isAppDark) {
-        runCatching { ReadStyleResolver.currentBackground(ReadBookConfig.durConfig) }.getOrNull()
-    } ?: return null
-    var seedColor by remember(background) { mutableStateOf<Color?>(null) }
+        runCatching {
+            ReadStyleResolver.currentBackground(ReadBookConfig.durConfig, isAppDark)
+        }.getOrNull()
+    }
+    // Keep the last resolved image seed while the next background is decoded.
+    var resolvedImageSeedColor by remember { mutableStateOf<Color?>(null) }
+    val solidSeedColor = remember(background) {
+        background
+            ?.takeIf { it.type == 0 }
+            ?.value
+            ?.toColorOrNull()
+    }
 
     LaunchedEffect(background, styleConfig, isAppDark) {
-        seedColor = when (background.type) {
-            0 -> background.value.toColorOrNull()
-            else -> extractCurrentReadBackgroundSeed()
-                ?: ReadBookConfig.bgMeanColor.takeIf { it != 0 }?.let(::Color)
+        if (background != null && background.type != 0) {
+            val seedColor = extractCurrentReadBackgroundSeed(isAppDark)
+                ?: ReadSessionState.backgroundMeanColor.takeIf { it != 0 }?.let(::Color)
+            if (seedColor != null) {
+                resolvedImageSeedColor = seedColor
+            }
         }
     }
 
-    val sourceColor = seedColor ?: return null
-    val surfaceColor = when (background.type) {
-        0 -> background.value.toColorOrNull()
-        else -> ReadBookConfig.bgMeanColor.takeIf { it != 0 }?.let(::Color)
-    }
+    val sourceColor = solidSeedColor
+        ?: resolvedImageSeedColor
+        ?: ReadSessionState.backgroundMeanColor.takeIf { it != 0 }?.let(::Color)
+        ?: fallbackSeedColor
     return rememberReadThemeOverride(
         seedColor = sourceColor,
-        backgroundColor = surfaceColor,
+        backgroundColor = null,
         containerColor = null,
-        fallbackDark = isAppDark,
+        deriveDarkFromColor = false,
+        paletteStyle = paletteStyle,
     )
 }
 
@@ -93,6 +113,7 @@ private fun rememberCustomReadMenuTheme(
     styleConfig: ReadBookStyleConfig,
     preferences: ReadPreferences,
     isAppDark: Boolean,
+    paletteStyle: String,
 ): ThemeOverrideState {
     val menuBackgroundColor = remember(
         styleConfig,
@@ -127,6 +148,7 @@ private fun rememberCustomReadMenuTheme(
             menuBackgroundColor = menuBackgroundColor,
             menuContainerColor = menuContainerColor,
             isDark = isAppDark,
+            paletteStyle = paletteStyle,
         )
     }
 
@@ -136,11 +158,7 @@ private fun rememberCustomReadMenuTheme(
         containerColor = null,
         fallbackDark = isAppDark,
         deriveDarkFromColor = false,
-    ) ?: buildReadThemeOverride(
-        seedColor = accentColor,
-        backgroundColor = null,
-        containerColor = null,
-        isDark = isAppDark,
+        paletteStyle = paletteStyle,
     )
 }
 
@@ -150,13 +168,26 @@ private fun rememberCustomReadMenuThemeOverride(
     menuBackgroundColor: Color,
     menuContainerColor: Color,
     isDark: Boolean,
+    paletteStyle: String,
 ): ThemeOverrideState {
-    return remember(accentColor, menuBackgroundColor, menuContainerColor, isDark) {
+    val themeSettings = LocalAppUiConfiguration.current.theme
+    return remember(
+        accentColor,
+        menuBackgroundColor,
+        menuContainerColor,
+        isDark,
+        paletteStyle,
+        themeSettings.materialVersion,
+        themeSettings.paletteStyle,
+    ) {
         buildReadThemeOverride(
             seedColor = accentColor,
             backgroundColor = null,
             containerColor = null,
             isDark = isDark,
+            paletteStyle = paletteStyle,
+            materialVersion = themeSettings.materialVersion,
+            defaultPaletteStyle = themeSettings.paletteStyle,
         ).let { base ->
             base.copy(
                 colorScheme = base.colorScheme.withCustomReadMenuColors(
@@ -176,7 +207,9 @@ private fun rememberReadThemeOverride(
     containerColor: Color?,
     fallbackDark: Boolean = LegadoTheme.isDark,
     deriveDarkFromColor: Boolean = true,
-): ThemeOverrideState? {
+    paletteStyle: String = "",
+): ThemeOverrideState {
+    val themeSettings = LocalAppUiConfiguration.current.theme
     val isDark = remember(backgroundColor, containerColor, fallbackDark, deriveDarkFromColor) {
         if (deriveDarkFromColor) {
             (containerColor ?: backgroundColor)?.let { it.luminance() < 0.5f } ?: fallbackDark
@@ -184,12 +217,23 @@ private fun rememberReadThemeOverride(
             fallbackDark
         }
     }
-    return remember(seedColor, backgroundColor, containerColor, isDark) {
+    return remember(
+        seedColor,
+        backgroundColor,
+        containerColor,
+        isDark,
+        paletteStyle,
+        themeSettings.materialVersion,
+        themeSettings.paletteStyle,
+    ) {
         buildReadThemeOverride(
             seedColor = seedColor,
             backgroundColor = backgroundColor,
             containerColor = containerColor,
             isDark = isDark,
+            paletteStyle = paletteStyle,
+            materialVersion = themeSettings.materialVersion,
+            defaultPaletteStyle = themeSettings.paletteStyle,
         )
     }
 }
@@ -199,12 +243,19 @@ private fun buildReadThemeOverride(
     backgroundColor: Color?,
     containerColor: Color?,
     isDark: Boolean,
+    paletteStyle: String = "",
+    materialVersion: String,
+    defaultPaletteStyle: String,
 ): ThemeOverrideState {
-    val colorSpec = ThemeResolver.resolveColorSpecFromMaterialVersion(ThemeConfig.materialVersion)
+    val colorSpec = ThemeResolver.resolveColorSpecFromMaterialVersion(materialVersion)
+    val resolvedPaletteStyle = paletteStyle
+        .takeIf { it.isNotBlank() }
+        ?.let { ThemeResolver.resolvePaletteStyle(it) }
+        ?: ThemeResolver.resolvePaletteStyle(defaultPaletteStyle)
     val base = buildThemeOverrideState(
         seedColor = seedColor,
         isDark = isDark,
-        paletteStyle = ThemeResolver.resolvePaletteStyle(ThemeConfig.paletteStyle),
+        paletteStyle = resolvedPaletteStyle,
         colorSpec = colorSpec,
         usePureBlack = false,
     )
@@ -276,13 +327,14 @@ private fun ReadPreferences.readMenuContainerColor(isDark: Boolean): Int {
     }
 }
 
-private suspend fun extractCurrentReadBackgroundSeed(): Color? {
+private suspend fun extractCurrentReadBackgroundSeed(isDarkTheme: Boolean): Color? {
     return withContext(Dispatchers.Default) {
         runCatching {
             val drawable = ReadStyleResolver.currentBackgroundDrawable(
                 config = ReadBookConfig.durConfig,
                 width = 128,
-                height = 128
+                height = 128,
+                isNightTheme = isDarkTheme,
             )
             if (drawable is ColorDrawable) {
                 Color(drawable.color)

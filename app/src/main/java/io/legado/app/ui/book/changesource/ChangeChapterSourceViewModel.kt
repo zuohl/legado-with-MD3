@@ -6,6 +6,8 @@ import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.SearchBook
 import io.legado.app.data.repository.SearchRepository
+import io.legado.app.domain.gateway.ChangeSourceSettingsGateway
+import io.legado.app.domain.model.settings.ChangeSourceSettings
 import io.legado.app.domain.usecase.ChangeSourceSearchEvent
 import io.legado.app.domain.usecase.ChangeSourceSearchUseCase
 import io.legado.app.domain.usecase.GetChapterContentUseCase
@@ -18,21 +20,33 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ChangeChapterSourceViewModel(
     private val changeSourceSearchUseCase: ChangeSourceSearchUseCase,
     private val getChapterContentUseCase: GetChapterContentUseCase,
     private val searchRepository: SearchRepository,
+    private val changeSourceSettingsGateway: ChangeSourceSettingsGateway,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(ChangeChapterSourceUiState())
+    private val initialSettings = changeSourceSettingsGateway.currentSettings
+    private val _uiState = MutableStateFlow(
+        ChangeChapterSourceUiState(
+            checkAuthor = initialSettings.checkAuthor,
+            loadInfo = initialSettings.loadInfo,
+            loadToc = initialSettings.loadToc,
+            loadWordCount = initialSettings.loadWordCount,
+        )
+    )
     val uiState = _uiState.asStateFlow()
 
     private val _effects = MutableSharedFlow<ChangeChapterSourceEffect>(extraBufferCapacity = 16)
     val effects = _effects.asSharedFlow()
 
     // Internal state
+    private val chapterNumRegex = "^\\[(\\d+)]".toRegex()
     private var searchJob: Job? = null
     private var oldBook: Book? = null
     private var chapterIndex: Int = 0
@@ -42,7 +56,7 @@ class ChangeChapterSourceViewModel(
     private val bookMap = mutableMapOf<String, SearchBook>()
 
     // Scope state
-    private val searchScope = SearchScope(ChangeSourceConfig.searchScope)
+    private val searchScope = SearchScope(initialSettings.searchScope)
 
     init {
         // Load initial scope state
@@ -57,6 +71,18 @@ class ChangeChapterSourceViewModel(
             )
         }
         // Collect enabled groups and sources
+        viewModelScope.launch {
+            changeSourceSettingsGateway.settings.collect { settings ->
+                _uiState.update {
+                    it.copy(
+                        checkAuthor = settings.checkAuthor,
+                        loadInfo = settings.loadInfo,
+                        loadToc = settings.loadToc,
+                        loadWordCount = settings.loadWordCount,
+                    )
+                }
+            }
+        }
         viewModelScope.launch {
             searchRepository.enabledGroups.collect { groups ->
                 _uiState.update { it.copy(enabledGroups = groups.toImmutableList()) }
@@ -78,10 +104,41 @@ class ChangeChapterSourceViewModel(
                 showToc = false,
                 tocItems = persistentListOf(),
                 isLoadingToc = false,
+                currentTocIndex = -1,
                 selectedSourceName = "",
             )
         }
-        startSearch()
+        if (searchJob?.isActive != true) {
+            viewModelScope.launch {
+                val dbBooks = withContext(Dispatchers.IO) {
+                    getDbSearchBooks()
+                }
+                if (dbBooks.isNotEmpty()) {
+                    searchResults.clear()
+                    searchResults.addAll(dbBooks)
+                    searchResults.forEach { bookMap[it.primaryStr()] = it }
+                    filterResults()
+                } else {
+                    startSearch()
+                }
+            }
+        }
+    }
+
+    private suspend fun getDbSearchBooks(): List<SearchBook> {
+        val name = oldBook?.name ?: return emptyList()
+        val author = oldBook?.author ?: return emptyList()
+        val settings = changeSourceSettingsGateway.currentSettings
+        val searchScope = SearchScope(settings.searchScope)
+        val group = when {
+            searchScope.isAll() || searchScope.isSource() -> ""
+            else -> {
+                val names = searchScope.displayNames
+                if (names.size == 1) names.first() else ""
+            }
+        }
+        val bookAuthor = if (settings.checkAuthor) author else ""
+        return searchRepository.findChangeSourceBooks(name, bookAuthor, screenKey, group)
     }
 
     fun onIntent(intent: ChangeChapterSourceIntent) {
@@ -113,7 +170,8 @@ class ChangeChapterSourceViewModel(
                     it.copy(
                         showToc = false,
                         tocItems = persistentListOf(),
-                        isLoadingToc = false
+                        isLoadingToc = false,
+                        currentTocIndex = -1,
                     )
                 }
             }
@@ -123,23 +181,23 @@ class ChangeChapterSourceViewModel(
             }
             // Options
             is ChangeChapterSourceIntent.SetCheckAuthor -> {
-                ChangeSourceConfig.checkAuthor = intent.enabled
+                updateSetting { it.copy(checkAuthor = intent.enabled) }
                 _uiState.update { it.copy(checkAuthor = intent.enabled) }
                 refreshResults()
             }
 
             is ChangeChapterSourceIntent.SetLoadInfo -> {
-                ChangeSourceConfig.loadInfo = intent.enabled
+                updateSetting { it.copy(loadInfo = intent.enabled) }
                 _uiState.update { it.copy(loadInfo = intent.enabled) }
             }
 
             is ChangeChapterSourceIntent.SetLoadToc -> {
-                ChangeSourceConfig.loadToc = intent.enabled
+                updateSetting { it.copy(loadToc = intent.enabled) }
                 _uiState.update { it.copy(loadToc = intent.enabled) }
             }
 
             is ChangeChapterSourceIntent.SetLoadWordCount -> {
-                ChangeSourceConfig.loadWordCount = intent.enabled
+                updateSetting { it.copy(loadWordCount = intent.enabled) }
                 _uiState.update { it.copy(loadWordCount = intent.enabled) }
                 if (intent.enabled) {
                     startSearch()
@@ -180,7 +238,7 @@ class ChangeChapterSourceViewModel(
 
             is ChangeChapterSourceIntent.SelectAllScope -> {
                 searchScope.update("")
-                saveScope()
+                updateScopeState()
             }
 
             is ChangeChapterSourceIntent.ToggleScopeGroup -> {
@@ -194,7 +252,7 @@ class ChangeChapterSourceViewModel(
                     selected.add(intent.groupName)
                 }
                 searchScope.update(selected.toList())
-                saveScope()
+                updateScopeState()
             }
 
             is ChangeChapterSourceIntent.ToggleScopeSource -> {
@@ -211,17 +269,18 @@ class ChangeChapterSourceViewModel(
                 if (selectedUrls.isEmpty()) {
                     searchScope.update("")
                 } else {
-                    val selectedSources =
-                        io.legado.app.data.appDb.bookSourceDao.allEnabledPart.filter {
-                            selectedUrls.contains(it.bookSourceUrl)
-                        }
+                    val selectedSources = _uiState.value.enabledSources.filter {
+                        selectedUrls.contains(it.bookSourceUrl)
+                    }
                     searchScope.updateSources(selectedSources)
                 }
-                saveScope()
+                updateScopeState()
             }
 
             is ChangeChapterSourceIntent.ApplyScope -> {
-                startSearch()
+                val value = searchScope.toString()
+                updateSetting { it.copy(searchScope = value) }
+                refreshResults()
             }
         }
     }
@@ -229,15 +288,26 @@ class ChangeChapterSourceViewModel(
     private fun startSearch() {
         val book = oldBook ?: return
         stopSearch()
+        val removedResults = searchResults.toList()
         searchResults.clear()
         bookMap.clear()
+        val scope = SearchScope(changeSourceSettingsGateway.currentSettings.searchScope)
+        _uiState.update {
+            it.copy(
+                totalSourceCount = scope.getBookSourceParts().size,
+                searchProgress = 0 to "",
+            )
+        }
         filterResults()
 
         searchJob = viewModelScope.launch {
+            if (removedResults.isNotEmpty()) {
+                searchRepository.deleteSearchBooks(removedResults)
+            }
             changeSourceSearchUseCase.search(
                 name = book.name,
                 author = book.author,
-                scope = SearchScope(ChangeSourceConfig.searchScope),
+                scope = scope,
                 oldBook = book,
                 fromReadBookActivity = true,
             ).collect { event ->
@@ -258,6 +328,7 @@ class ChangeChapterSourceViewModel(
                     is ChangeSourceSearchEvent.Result -> {
                         searchResults.add(event.searchBook)
                         bookMap[event.searchBook.primaryStr()] = event.searchBook
+                        searchRepository.saveSearchBook(event.searchBook)
                         filterResults()
                     }
 
@@ -280,9 +351,20 @@ class ChangeChapterSourceViewModel(
     }
 
     private fun refreshResults() {
-        searchResults.clear()
-        bookMap.clear()
-        startSearch()
+        viewModelScope.launch {
+            val dbBooks = withContext(Dispatchers.IO) {
+                getDbSearchBooks()
+            }
+            searchResults.clear()
+            bookMap.clear()
+            if (dbBooks.isNotEmpty()) {
+                searchResults.addAll(dbBooks)
+                searchResults.forEach { bookMap[it.primaryStr()] = it }
+                filterResults()
+            } else {
+                startSearch()
+            }
+        }
     }
 
     private fun filterResults() {
@@ -293,18 +375,29 @@ class ChangeChapterSourceViewModel(
                 it.name.contains(screenKey) || it.originName.contains(screenKey)
             }
         }
-        // Sort by score
-        val sorted = filtered.sortedWith(
+        val comparator = if (_uiState.value.loadWordCount) {
+            compareByDescending<SearchBook> { ObservableSourceConfig.getBookScore(it) }
+                .thenByDescending { io.legado.app.help.config.SourceConfig.getSourceScore(it.origin) }
+                .thenByDescending { it.chapterWordCount > 1000 }
+                .thenByDescending { getChapterNum(it.chapterWordCountText) }
+                .thenByDescending { it.chapterWordCount }
+                .thenBy { it.originOrder }
+        } else {
             compareByDescending<SearchBook> { ObservableSourceConfig.getBookScore(it) }
                 .thenByDescending { io.legado.app.help.config.SourceConfig.getSourceScore(it.origin) }
                 .thenBy { it.originOrder }
-        )
+        }
         _uiState.update {
             it.copy(
-                searchResults = sorted.toImmutableList(),
+                searchResults = filtered.sortedWith(comparator).toImmutableList(),
                 bookMap = bookMap.toMap()
             )
         }
+    }
+
+    private fun getChapterNum(text: String?): Int {
+        if (text.isNullOrBlank()) return 0
+        return chapterNumRegex.find(text)?.groupValues?.get(1)?.toIntOrNull() ?: 0
     }
 
     private fun selectSource(searchBook: SearchBook) {
@@ -313,23 +406,34 @@ class ChangeChapterSourceViewModel(
             it.copy(
                 showToc = true,
                 selectedSourceName = searchBook.originName,
-                isLoadingToc = true
+                isLoadingToc = true,
+                currentTocIndex = -1,
             )
         }
         viewModelScope.launch {
             try {
-                val (toc, _) = getChapterContentUseCase.getToc(book)
+                val (toc, _) = withContext(Dispatchers.IO) {
+                    getChapterContentUseCase.getToc(book)
+                }
+                val currentTocIndex = getChapterContentUseCase.getDurChapterIndex(
+                    chapterIndex = chapterIndex,
+                    chapterTitle = chapterTitle,
+                    toc = toc,
+                    totalChapterNum = oldBook?.totalChapterNum ?: 0,
+                ).takeIf { it in toc.indices } ?: -1
                 _uiState.update {
                     it.copy(
                         tocItems = toc.toImmutableList(),
-                        isLoadingToc = false
+                        isLoadingToc = false,
+                        currentTocIndex = currentTocIndex,
                     )
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 _uiState.update {
                     it.copy(
                         showToc = false,
-                        isLoadingToc = false
+                        isLoadingToc = false,
+                        currentTocIndex = -1,
                     )
                 }
                 _effects.tryEmit(ChangeChapterSourceEffect.ShowToast("获取目录失败"))
@@ -349,8 +453,9 @@ class ChangeChapterSourceViewModel(
                 val searchBook = selectedSearchBook.toBook()
                 val toc = _uiState.value.tocItems
                 val nextChapterUrl = toc.getOrNull(chapter.index + 1)?.url
-                val content =
+                val content = withContext(Dispatchers.IO) {
                     getChapterContentUseCase.getContent(searchBook, chapter, nextChapterUrl)
+                }
                 _uiState.update { it.copy(isLoadingToc = false) }
                 _effects.tryEmit(ChangeChapterSourceEffect.ReplaceContent(content))
                 _effects.tryEmit(ChangeChapterSourceEffect.Dismiss)
@@ -365,8 +470,7 @@ class ChangeChapterSourceViewModel(
         }
     }
 
-    private fun saveScope() {
-        ChangeSourceConfig.searchScope = searchScope.toString()
+    private fun updateScopeState() {
         _uiState.update {
             it.copy(
                 scopeState = ScopeUiState(
@@ -377,7 +481,12 @@ class ChangeChapterSourceViewModel(
                 )
             )
         }
-        refreshResults()
+    }
+
+    private fun updateSetting(transform: (ChangeSourceSettings) -> ChangeSourceSettings) {
+        viewModelScope.launch {
+            changeSourceSettingsGateway.update(transform)
+        }
     }
 
     fun bookScoreFlow(searchBook: SearchBook) = ObservableSourceConfig.bookScoreFlow(searchBook)

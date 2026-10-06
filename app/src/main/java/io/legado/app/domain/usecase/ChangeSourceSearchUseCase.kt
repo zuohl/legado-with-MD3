@@ -5,15 +5,15 @@ import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.SearchBook
 import io.legado.app.domain.gateway.BookSearchGateway
+import io.legado.app.domain.gateway.ChangeSourceSettingsGateway
+import io.legado.app.domain.gateway.DownloadCacheSettingsGateway
+import io.legado.app.domain.model.settings.ChangeSourceSettings
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.book.ContentProcessor
-import io.legado.app.help.book.primaryStr
 import io.legado.app.help.book.releaseHtmlData
-import io.legado.app.help.config.AppConfig
 import io.legado.app.help.source.SourceHelp
 import io.legado.app.model.webBook.WebBook
 import io.legado.app.ui.book.changesource.ObservableSourceConfig
-import io.legado.app.ui.config.otherConfig.OtherConfig
 import io.legado.app.utils.internString
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -25,12 +25,11 @@ import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.flatMapMerge
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withTimeout
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
 
 sealed interface ChangeSourceSearchEvent {
-    data object Started : ChangeSourceSearchEvent
+    data class Started(val totalSources: Int) : ChangeSourceSearchEvent
     data class Progress(
         val processedSources: Int,
         val totalSources: Int,
@@ -38,24 +37,20 @@ sealed interface ChangeSourceSearchEvent {
         val sourceName: String,
     ) : ChangeSourceSearchEvent
 
-    data class Result(val searchBook: SearchBook) : ChangeSourceSearchEvent
+    data class Result(
+        val searchBook: SearchBook,
+        val book: Book,
+        val toc: List<BookChapter>?,
+    ) : ChangeSourceSearchEvent
+
     data class Finished(val isEmpty: Boolean) : ChangeSourceSearchEvent
 }
 
 class ChangeSourceSearchUseCase(
     private val gateway: BookSearchGateway,
+    private val changeSourceSettingsGateway: ChangeSourceSettingsGateway,
+    private val downloadCacheSettingsGateway: DownloadCacheSettingsGateway,
 ) {
-    private val threadCount = OtherConfig.threadCount
-    private val contentProcessor by lazy {
-        // ContentProcessor needs the old book - will be set before search
-        null as ContentProcessor?
-    }
-
-    // Shared state for TOC cache
-    private val tocMap = ConcurrentHashMap<String, List<BookChapter>>()
-    private val bookMap = ConcurrentHashMap<String, Book>()
-    private val tocMapChapterCount = AtomicInteger(0)
-
     @OptIn(ExperimentalCoroutinesApi::class)
     fun search(
         name: String,
@@ -65,34 +60,29 @@ class ChangeSourceSearchUseCase(
         fromReadBookActivity: Boolean,
     ): Flow<ChangeSourceSearchEvent> = flow {
         val contentProcessor = ContentProcessor.get(oldBook)
+        val settings = changeSourceSettingsGateway.currentSettings
         val bookSourceParts = scope.getBookSourceParts()
         if (bookSourceParts.isEmpty()) {
             throw io.legado.app.exception.NoStackTraceException("启用书源为空")
         }
-        val sources = bookSourceParts.mapNotNull { it.getBookSource() }
-        if (sources.isEmpty()) {
-            throw io.legado.app.exception.NoStackTraceException("启用书源为空")
-        }
 
-        tocMap.clear()
-        bookMap.clear()
-        tocMapChapterCount.set(0)
-
-        emit(ChangeSourceSearchEvent.Started)
+        val totalSources = bookSourceParts.size
+        emit(ChangeSourceSearchEvent.Started(totalSources))
 
         var processedSources = 0
         var resultCount = 0
-        val totalSources = sources.size
-        val concurrency = threadCount.coerceAtLeast(1)
+        val concurrency = downloadCacheSettingsGateway.currentSettings.threadCount.coerceAtLeast(1)
 
-        sources.asFlow()
+        bookSourceParts.asFlow()
+            .mapNotNull { it.getBookSource() }
             .flatMapMerge(concurrency) { source ->
                 flow {
                     val books = try {
                         withTimeout(60000L) {
                             searchSource(
                                 source, name, author, oldBook, fromReadBookActivity,
-                                contentProcessor
+                                contentProcessor,
+                                settings,
                             )
                         }
                     } catch (_: Throwable) {
@@ -104,9 +94,15 @@ class ChangeSourceSearchUseCase(
             }
             .collect { result ->
                 currentCoroutineContext().ensureActive()
-                result.books.forEach { searchBook ->
+                result.books.forEach { loadedBook ->
                     resultCount++
-                    emit(ChangeSourceSearchEvent.Result(searchBook))
+                    emit(
+                        ChangeSourceSearchEvent.Result(
+                            searchBook = loadedBook.searchBook,
+                            book = loadedBook.book,
+                            toc = loadedBook.toc,
+                        )
+                    )
                 }
                 processedSources++
                 emit(
@@ -122,9 +118,85 @@ class ChangeSourceSearchUseCase(
         emit(ChangeSourceSearchEvent.Finished(isEmpty = resultCount == 0))
     }.flowOn(Dispatchers.IO)
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun refresh(
+        books: List<SearchBook>,
+        oldBook: Book,
+        fromReadBookActivity: Boolean,
+    ): Flow<ChangeSourceSearchEvent> = flow {
+        val contentProcessor = ContentProcessor.get(oldBook)
+        val settings = changeSourceSettingsGateway.currentSettings
+        val totalBooks = books.size
+        val concurrency = downloadCacheSettingsGateway.currentSettings.threadCount.coerceAtLeast(1)
+        var processedBooks = 0
+        var resultCount = 0
+
+        emit(ChangeSourceSearchEvent.Started(totalBooks))
+
+        books.asFlow()
+            .flatMapMerge(concurrency) { searchBook ->
+                flow {
+                    val loadedBook = try {
+                        gateway.getBookSource(searchBook.origin)?.let { source ->
+                            withTimeout(60000L) {
+                                loadBookInfo(
+                                    source = source,
+                                    book = searchBook.toBook(),
+                                    loadToc = settings.loadToc,
+                                    loadWordCount = settings.loadWordCount,
+                                    oldBook = oldBook,
+                                    fromReadBookActivity = fromReadBookActivity,
+                                    contentProcessor = contentProcessor,
+                                )
+                            }
+                        }
+                    } catch (_: Throwable) {
+                        currentCoroutineContext().ensureActive()
+                        null
+                    }
+                    emit(ChangeSourceRefreshResult(searchBook.originName, loadedBook))
+                }.flowOn(Dispatchers.IO)
+            }
+            .collect { result ->
+                currentCoroutineContext().ensureActive()
+                result.loadedBook?.let { loadedBook ->
+                    resultCount++
+                    emit(
+                        ChangeSourceSearchEvent.Result(
+                            searchBook = loadedBook.searchBook,
+                            book = loadedBook.book,
+                            toc = loadedBook.toc,
+                        )
+                    )
+                }
+                processedBooks++
+                emit(
+                    ChangeSourceSearchEvent.Progress(
+                        processedSources = processedBooks,
+                        totalSources = totalBooks,
+                        resultCount = resultCount,
+                        sourceName = result.sourceName,
+                    )
+                )
+            }
+
+        emit(ChangeSourceSearchEvent.Finished(isEmpty = resultCount == 0))
+    }.flowOn(Dispatchers.IO)
+
     private data class ChangeSourceResult(
         val source: BookSource,
-        val books: List<SearchBook>,
+        val books: List<LoadedSearchBook>,
+    )
+
+    private data class ChangeSourceRefreshResult(
+        val sourceName: String,
+        val loadedBook: LoadedSearchBook?,
+    )
+
+    private data class LoadedSearchBook(
+        val searchBook: SearchBook,
+        val book: Book,
+        val toc: List<BookChapter>? = null,
     )
 
     private suspend fun searchSource(
@@ -134,11 +206,12 @@ class ChangeSourceSearchUseCase(
         oldBook: Book,
         fromReadBookActivity: Boolean,
         contentProcessor: ContentProcessor,
-    ): List<SearchBook> {
-        val checkAuthor = AppConfig.changeSourceCheckAuthor
-        val loadInfo = AppConfig.changeSourceLoadInfo
-        val loadToc = AppConfig.changeSourceLoadToc
-        val loadWordCount = AppConfig.changeSourceLoadWordCount
+        settings: ChangeSourceSettings,
+    ): List<LoadedSearchBook> {
+        val checkAuthor = settings.checkAuthor
+        val loadInfo = settings.loadInfo
+        val loadToc = settings.loadToc
+        val loadWordCount = settings.loadWordCount
 
         val resultBooks = WebBook.searchBookAwait(
             source, name,
@@ -147,13 +220,13 @@ class ChangeSourceSearchUseCase(
             }
         )
 
-        val processedBooks = mutableListOf<SearchBook>()
+        val processedBooks = mutableListOf<LoadedSearchBook>()
         for (searchBook in resultBooks) {
             currentCoroutineContext().ensureActive()
             when {
                 loadInfo || loadToc || loadWordCount -> {
                     val book = searchBook.toBook()
-                    try {
+                    processedBooks.add(
                         loadBookInfo(
                             source,
                             book,
@@ -163,16 +236,16 @@ class ChangeSourceSearchUseCase(
                             fromReadBookActivity,
                             contentProcessor
                         )
-                        val processedSearchBook = book.toSearchBook()
-                        processedBooks.add(processedSearchBook)
-                    } catch (e: Throwable) {
-                        if (e is CancellationException) throw e
-                        processedBooks.add(searchBook)
-                    }
+                    )
                 }
 
                 else -> {
-                    processedBooks.add(searchBook)
+                    processedBooks.add(
+                        LoadedSearchBook(
+                            searchBook = searchBook,
+                            book = searchBook.toBook(),
+                        )
+                    )
                 }
             }
         }
@@ -187,12 +260,12 @@ class ChangeSourceSearchUseCase(
         oldBook: Book,
         fromReadBookActivity: Boolean,
         contentProcessor: ContentProcessor,
-    ) {
+    ): LoadedSearchBook {
         if (book.tocUrl.isEmpty()) {
             WebBook.getBookInfoAwait(source, book)
         }
         if (loadToc || loadWordCount) {
-            loadBookToc(
+            return loadBookToc(
                 source,
                 book,
                 loadWordCount,
@@ -201,6 +274,10 @@ class ChangeSourceSearchUseCase(
                 contentProcessor
             )
         }
+        return LoadedSearchBook(
+            searchBook = book.toSearchBook(),
+            book = book,
+        )
     }
 
     private suspend fun loadBookToc(
@@ -210,18 +287,13 @@ class ChangeSourceSearchUseCase(
         oldBook: Book,
         fromReadBookActivity: Boolean,
         contentProcessor: ContentProcessor,
-    ) {
+    ): LoadedSearchBook {
         val chapters = WebBook.getChapterListAwait(source, book).getOrThrow()
         for (chapter in chapters) {
             chapter.internString()
         }
-        if (tocMapChapterCount.get() < 30000) {
-            tocMapChapterCount.addAndGet(chapters.size)
-            tocMap[book.primaryStr()] = chapters
-        }
-        bookMap[book.primaryStr()] = book
         book.releaseHtmlData()
-        if (loadWordCount) {
+        val searchBook = if (loadWordCount) {
             loadBookWordCount(
                 source,
                 book,
@@ -230,7 +302,14 @@ class ChangeSourceSearchUseCase(
                 fromReadBookActivity,
                 contentProcessor
             )
+        } else {
+            book.toSearchBook()
         }
+        return LoadedSearchBook(
+            searchBook = searchBook,
+            book = book,
+            toc = chapters,
+        )
     }
 
     private suspend fun loadBookWordCount(
@@ -240,21 +319,21 @@ class ChangeSourceSearchUseCase(
         oldBook: Book,
         fromReadBookActivity: Boolean,
         contentProcessor: ContentProcessor,
-    ) {
-        if (chapters.isEmpty()) return
+    ): SearchBook {
+        if (chapters.isEmpty()) return book.toSearchBook()
         val chapterIndex = if (fromReadBookActivity) {
             BookHelp.getDurChapter(oldBook, chapters)
         } else {
             chapters.lastIndex
         }
-        if (chapterIndex !in chapters.indices) return
+        if (chapterIndex !in chapters.indices) return book.toSearchBook()
         val bookChapter = chapters[chapterIndex]
         var title = bookChapter.title.trim()
         if (title.length > 20) {
             title = title.substring(0, 20) + "…"
         }
         val startTime = System.currentTimeMillis()
-        try {
+        return try {
             val nextChapterUrl = chapters.getOrNull(chapterIndex + 1)?.url
             var content = WebBook.getContentAwait(source, book, bookChapter, nextChapterUrl, false)
             content = contentProcessor.getContent(oldBook, bookChapter, content, false).toString()

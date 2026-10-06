@@ -25,8 +25,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import io.legado.app.R
 import io.legado.app.data.entities.rule.ExploreKind
 import io.legado.app.domain.usecase.ExploreKindUiUseCase
 import io.legado.app.ui.theme.LegadoTheme
@@ -55,6 +59,9 @@ fun ExploreKindMultiTypeItem(
     isSelected: Boolean = false,
     onValueChange: ((String) -> Unit)? = null,
     onRunAction: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
+    textAlign: TextAlign = TextAlign.Center,
+    minHeight: Dp = 0.dp,
     useCase: ExploreKindUiUseCase? = null,
     onClick: (() -> Unit)? = null,
     content: (@Composable (displayName: String, isSelected: Boolean, onClick: () -> Unit, trailingIcon: @Composable (() -> Unit)?) -> Unit)? = null
@@ -71,7 +78,9 @@ fun ExploreKindMultiTypeItem(
 
     val BaseItem = @Composable { text: String, click: () -> Unit ->
         if (content != null) {
-            content(text, isSelected, click, trailingIcon)
+            Box(modifier = modifier) {
+                content(text, isSelected, click, trailingIcon)
+            }
         } else {
             ExploreKindItem(
                 kind = kind,
@@ -82,7 +91,10 @@ fun ExploreKindMultiTypeItem(
                 isMiuix = isMiuix,
                 displayText = text,
                 isSelected = isSelected,
-                trailingIcon = trailingIcon
+                trailingIcon = trailingIcon,
+                onLongClick = onLongClick,
+                textAlign = textAlign,
+                minHeight = minHeight,
             )
         }
     }
@@ -156,7 +168,8 @@ fun ExploreKindMultiTypeItem(
                         modifier = modifier,
                         backgroundColor = backgroundColor,
                         isMiuix = isMiuix,
-                        displayText = state.displayName
+                        displayText = state.displayName,
+                        minHeight = minHeight,
                     )
                 }
             }
@@ -166,13 +179,13 @@ fun ExploreKindMultiTypeItem(
     AppAlertDialog(
         data = showFullError,
         onDismissRequest = { showFullError = null },
-        title = "错误详情",
-        confirmText = "复制",
+        title = stringResource(R.string.error_details),
+        confirmText = stringResource(R.string.copy_text),
         onConfirm = { error ->
             context.sendToClip(error)
             showFullError = null
         },
-        dismissText = "关闭",
+        dismissText = stringResource(R.string.close),
         onDismiss = { showFullError = null },
         content = { error ->
             SelectionContainer {

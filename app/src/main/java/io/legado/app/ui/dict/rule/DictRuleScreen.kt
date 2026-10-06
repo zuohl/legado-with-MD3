@@ -16,7 +16,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,27 +42,53 @@ import io.legado.app.ui.widget.components.card.ReorderableSelectionItem
 import io.legado.app.ui.widget.components.filePicker.FilePickerSheet
 import io.legado.app.ui.widget.components.icon.AppIcons
 import io.legado.app.ui.widget.components.importComponents.BatchImportDialog
+import io.legado.app.ui.widget.components.importComponents.BaseImportUiState
 import io.legado.app.ui.widget.components.importComponents.SourceInputDialog
 import io.legado.app.ui.widget.components.lazylist.FastScrollLazyColumn
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
 import io.legado.app.ui.widget.components.rules.RuleEditFields
 import io.legado.app.ui.widget.components.rules.RuleEditSheet
 import io.legado.app.ui.widget.components.rules.RuleListScaffold
+import kotlinx.coroutines.flow.Flow
 import org.koin.androidx.compose.koinViewModel
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun DictRuleScreen(
+fun DictRuleRouteScreen(
     viewModel: DictRuleViewModel = koinViewModel(),
     onBackClick: () -> Unit
 ) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val importState by viewModel.importState.collectAsStateWithLifecycle()
+
+    DictRuleScreen(
+        state = uiState,
+        importState = importState,
+        events = viewModel.events,
+        effects = viewModel.effects,
+        onIntent = viewModel::onIntent,
+        onPasteRule = viewModel::pasteRule,
+        onBackClick = onBackClick,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun DictRuleScreen(
+    state: DictRuleUiState,
+    importState: BaseImportUiState<DictRule>,
+    events: Flow<BaseRuleEvent>,
+    effects: Flow<DictRuleEffect>,
+    onIntent: (DictRuleIntent) -> Unit,
+    onPasteRule: () -> DictRule?,
+    onBackClick: () -> Unit,
+) {
 
     val context = LocalContext.current
-    val uiState by viewModel.uiState.collectAsState()
 
-    val rules = uiState.items
-    val selectedIds = uiState.selectedIds
+    val rules = state.items
+    val selectedIds = state.selectedIds
     val inSelectionMode = selectedIds.isNotEmpty()
 
     val listState = rememberLazyListState()
@@ -79,16 +104,15 @@ fun DictRuleScreen(
 
 
     val reorderableState = rememberReorderableLazyListState(listState) { from, to ->
-        viewModel.moveItemInList(from.index, to.index)
+        onIntent(DictRuleIntent.MoveItem(from.index, to.index))
         hapticFeedback.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
     }
 
     val clipboardManager = LocalClipboard.current
     val snackbarHostState = remember { SnackbarHostState() }
-    val importState by viewModel.importState.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
-        viewModel.events.collect { event ->
+        events.collect { event ->
             when (event) {
                 is BaseRuleEvent.ShowSnackbar -> {
                     val result = snackbarHostState.showSnackbar(
@@ -111,13 +135,21 @@ fun DictRuleScreen(
         }
     }
 
+    LaunchedEffect(effects) {
+        effects.collect { effect ->
+            when (effect) {
+                is DictRuleEffect.ShowMessage -> snackbarHostState.showSnackbar(effect.message)
+            }
+        }
+    }
+
     val importDoc = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
         onResult = { uri ->
             uri?.let {
                 context.contentResolver.openInputStream(it)?.use { stream ->
                     val text = stream.reader().readText()
-                    viewModel.importSource(text)
+                    onIntent(DictRuleIntent.ImportSource(text))
                 }
             }
         }
@@ -126,7 +158,7 @@ fun DictRuleScreen(
     val exportDoc = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json"),
         onResult = { uri ->
-            uri?.let { viewModel.exportToUri(it, rules, selectedIds) }
+            uri?.let { onIntent(DictRuleIntent.ExportSelection(it)) }
         }
     )
 
@@ -136,7 +168,7 @@ fun DictRuleScreen(
         onDismissRequest = { showUrlInput = false },
         onConfirm = {
             showUrlInput = false
-            viewModel.importSource(it)
+            onIntent(DictRuleIntent.ImportSource(it))
         }
     )
 
@@ -150,7 +182,7 @@ fun DictRuleScreen(
         },
         onUpload = {
             showExportSheet = false
-            viewModel.uploadSelectedRules(selectedIds, rules)
+            onIntent(DictRuleIntent.UploadSelection)
         },
         allowExtensions = arrayOf("json")
     )
@@ -172,13 +204,13 @@ fun DictRuleScreen(
     )
 
     BatchImportDialog(
-        title = "导入词典规则",
+        title = stringResource(R.string.import_dict_rule),
         importState = importState,
-        onDismissRequest = { viewModel.cancelImport() },
-        onToggleItem = { viewModel.toggleImportSelection(it) },
-        onToggleAll = { viewModel.toggleImportAll(it) },
-        onUpdateItem = { index, rule -> viewModel.updateImportItem(index, rule) },
-        onConfirm = { viewModel.saveImportedRules() },
+        onDismissRequest = { onIntent(DictRuleIntent.CancelImport) },
+        onToggleItem = { onIntent(DictRuleIntent.ToggleImportSelection(it)) },
+        onToggleAll = { onIntent(DictRuleIntent.ToggleImportAll(it)) },
+        onUpdateItem = { index, rule -> onIntent(DictRuleIntent.UpdateImportItem(index, rule)) },
+        onConfirm = { onIntent(DictRuleIntent.SaveImportedRules) },
         itemTitle = { rule -> rule.name },
         itemSubtitle = { rule ->
             rule.urlRule.takeIf { it.isNotBlank() }
@@ -187,7 +219,7 @@ fun DictRuleScreen(
 
     LaunchedEffect(reorderableState.isAnyItemDragging) {
         if (!reorderableState.isAnyItemDragging) {
-            viewModel.saveSortOrder()
+            onIntent(DictRuleIntent.SaveSortOrder)
         }
     }
 
@@ -195,9 +227,10 @@ fun DictRuleScreen(
         data = showDeleteRuleDialog,
         onDismissRequest = { showDeleteRuleDialog = null },
         title = stringResource(R.string.delete),
+        text = stringResource(R.string.sure_del),
         confirmText = stringResource(R.string.ok),
         onConfirm = { rule ->
-            viewModel.delete(rule)
+            onIntent(DictRuleIntent.DeleteRule(rule))
             showDeleteRuleDialog = null
         },
         dismissText = stringResource(R.string.cancel),
@@ -215,16 +248,18 @@ fun DictRuleScreen(
             editingRule = null
         },
         onSave = { updatedRule ->
-            if (editingRule == null) {
-                viewModel.insert(updatedRule)
-            } else {
-                viewModel.update(updatedRule)
-            }
+            onIntent(
+                DictRuleIntent.SaveRule(
+                    rule = updatedRule,
+                    isNew = editingRule == null,
+                    originalName = editingRule?.name,
+                )
+            )
             showEditSheet = false
             editingRule = null
         },
-        onCopy = { viewModel.copyRule(it) },
-        onPaste = { viewModel.pasteRule() },
+        onCopy = { onIntent(DictRuleIntent.CopyRule(it)) },
+        onPaste = onPasteRule,
         toFields = { r ->
             RuleEditFields(
                 name = r?.name ?: "",
@@ -246,28 +281,25 @@ fun DictRuleScreen(
     )
 
     RuleListScaffold(
-        title = "字典规则",
-        state = uiState,
+        title = stringResource(R.string.dict_rule),
+        state = state,
         onBackClick = { onBackClick() },
         onSearchToggle = { active ->
-            viewModel.setSearchMode(active)
+            onIntent(DictRuleIntent.SetSearchMode(active))
         },
-        onSearchQueryChange = { viewModel.setSearchKey(it) },
-        searchPlaceholder = stringResource(R.string.replace_purify_search),
-        onClearSelection = { viewModel.setSelection(emptySet()) },
-        onSelectAll = { viewModel.setSelection(rules.map { it.id }.toSet()) },
+        onSearchQueryChange = { onIntent(DictRuleIntent.UpdateSearchQuery(it)) },
+        searchPlaceholder = stringResource(R.string.search_dict_rule),
+        onClearSelection = { onIntent(DictRuleIntent.ClearSelection) },
+        onSelectAll = { onIntent(DictRuleIntent.SelectAll) },
         onSelectInvert = {
-            val allIds = rules.map { it.id }.toSet()
-            viewModel.setSelection(allIds - selectedIds)
+            onIntent(DictRuleIntent.InvertSelection)
         },
         selectionSecondaryActions = listOf(
             ActionItem(text = stringResource(R.string.enable), onClick = {
-                viewModel.enableSelectionByIds(selectedIds)
-                viewModel.setSelection(emptySet())
+                onIntent(DictRuleIntent.EnableSelection)
             }),
             ActionItem(text = stringResource(R.string.disable_selection), onClick = {
-                viewModel.disableSelectionByIds(selectedIds)
-                viewModel.setSelection(emptySet())
+                onIntent(DictRuleIntent.DisableSelection)
             }),
             ActionItem(
                 text = stringResource(R.string.export),
@@ -275,8 +307,8 @@ fun DictRuleScreen(
         ),
         onDeleteSelected = { ids ->
             @Suppress("UNCHECKED_CAST")
-            viewModel.delSelectionByIds(ids as Set<String>)
-            viewModel.setSelection(emptySet())
+            onIntent(DictRuleIntent.SetSelection(ids as Set<String>))
+            onIntent(DictRuleIntent.DeleteSelection)
         },
         onAddClick = {
             editingRule = null
@@ -304,20 +336,44 @@ fun DictRuleScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(rules, key = { it.id }) { item ->
+                    val enabledState = stringResource(
+                        if (item.isEnabled) R.string.enabled else R.string.disabled
+                    )
+                    val itemDescription = listOfNotNull(
+                        item.id,
+                        item.urlRule.takeIf { it.isNotBlank() },
+                        enabledState,
+                        stringResource(R.string.a11y_long_press_reorder)
+                    ).joinToString()
                     ReorderableSelectionItem(
                         state = reorderableState,
                         key = item.id,
+                        reorderIndex = rules.indexOf(item),
+                        reorderItemCount = rules.size,
+                        onMoveItem = { from, to -> onIntent(DictRuleIntent.MoveItem(from, to)) },
                         title = item.id,
                         isEnabled = item.isEnabled,
                         isSelected = selectedIds.contains(item.id),
                         inSelectionMode = inSelectionMode,
-                        onToggleSelection = { viewModel.toggleSelection(item.id) },
-                        onEnabledChange = { enabled -> viewModel.update(item.rule.copy(enabled = enabled)) },
+                        onToggleSelection = { onIntent(DictRuleIntent.ToggleSelection(item.id)) },
+                        onEnabledChange = { enabled ->
+                            onIntent(DictRuleIntent.SetRuleEnabled(item.rule, enabled))
+                        },
+                        contentDescription = itemDescription,
+                        enableSwitchContentDescription = stringResource(
+                            R.string.a11y_rule_enabled_switch,
+                            item.id
+                        ),
+                        editContentDescription = stringResource(R.string.a11y_edit_named, item.id),
                         onClickEdit = { editingRule = item.rule; showEditSheet = true },
                         trailingAction = {
                             SmallPlainButton(
                                 onClick = { showDeleteRuleDialog = item.rule },
-                                icon = AppIcons.Delete
+                                icon = AppIcons.Delete,
+                                contentDescription = stringResource(
+                                    R.string.a11y_delete_named,
+                                    item.id
+                                )
                             )
                         }
                     )
@@ -328,7 +384,7 @@ fun DictRuleScreen(
                     listState = listState,
                     items = rules,
                     selectedIds = selectedIds,
-                    onSelectionChange = { viewModel.setSelection(it) },
+                    onSelectionChange = { onIntent(DictRuleIntent.SetSelection(it)) },
                     idProvider = { it.id },
                     modifier = Modifier
                         .fillMaxHeight()

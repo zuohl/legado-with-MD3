@@ -22,7 +22,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.legado.app.data.entities.rule.ExploreKind
 import io.legado.app.domain.usecase.ExploreKindUiUseCase
-import io.legado.app.ui.main.homepage.HomepageViewModel
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.theme.ThemeResolver
 import io.legado.app.ui.widget.components.card.GlassCard
@@ -37,9 +36,11 @@ fun ButtonGroupModule(
     kinds: List<ExploreKind>,
     sourceUrl: String,
     globalId: String,
-    viewModel: HomepageViewModel,
+    onOpenKind: (sourceUrl: String, url: String, title: String) -> Unit,
+    onRefreshKinds: (globalId: String) -> Unit,
     modifier: Modifier = Modifier,
     icon: String? = null,
+    columns: Int = 5,
     layoutConfig: String? = null,
 ) {
     if (kinds.isEmpty()) return
@@ -65,12 +66,11 @@ fun ButtonGroupModule(
         } ?: (emptyMap<String, String>() to icon)
     }
 
-    // --- 动态布局计算逻辑 ---
-    val maxColumns = 5
+    // Keep rows balanced without exceeding the configured column count.
+    val maxColumns = columns.coerceAtLeast(1)
     val total = kinds.size
     val numRows = (total + maxColumns - 1) / maxColumns
     val actualColumns = (total + numRows - 1) / numRows
-    // -----------------------
 
     Column(
         modifier = modifier
@@ -91,10 +91,10 @@ fun ButtonGroupModule(
                         sourceUrl = sourceUrl,
                         activity = activity,
                         onOpenUrl = { url ->
-                            viewModel.onKindUrlClick(sourceUrl, url, kind.title)
+                            onOpenKind(sourceUrl, url, kind.title)
                         },
                         onRefreshKinds = {
-                            viewModel.refreshButtonGroup(globalId)
+                            onRefreshKinds(globalId)
                         },
                         useCase = useCase,
                         isMiuix = isMiuix,
@@ -115,7 +115,7 @@ fun ButtonGroupModule(
                                 ) {
                                     if (hasIcon) {
                                         SourceIcon(
-                                            path = buttonIcon!!,
+                                            path = buttonIcon,
                                             modifier = Modifier.size(20.dp),
                                             placeholderIcon = {
 

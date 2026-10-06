@@ -5,6 +5,8 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -16,21 +18,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.legado.app.R
 import io.legado.app.data.entities.SearchBook
 import io.legado.app.domain.model.BookShelfState
 import io.legado.app.ui.theme.LegadoTheme
@@ -40,6 +45,7 @@ import io.legado.app.ui.widget.components.card.GlassCard
 import io.legado.app.ui.widget.components.card.TextCard
 import io.legado.app.ui.widget.components.image.cover.CoilBookCover
 import io.legado.app.ui.widget.components.text.AppText
+import io.legado.app.utils.HtmlFormatter
 
 @OptIn(ExperimentalSharedTransitionApi::class, ExperimentalFoundationApi::class)
 @Composable
@@ -53,6 +59,8 @@ fun SearchBookListItem(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     sharedCoverKey: String? = null,
+    sourceCount: Int? = null,
+    qualityMasked: Boolean = false,
 ) {
     Row(
         modifier = modifier
@@ -72,13 +80,34 @@ fun SearchBookListItem(
                 name = book.name,
                 author = book.author,
                 path = book.coverUrl,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(if (qualityMasked) Modifier.blur(8.dp) else Modifier),
                 sourceOrigin = book.origin,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,
                 sharedCoverKey = sharedCoverKey,
                 showLoadingPlaceholder = sharedCoverKey == null
             )
+
+            if (qualityMasked) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(LegadoTheme.colorScheme.scrim.copy(alpha = 0.58f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    AppText(
+                        text = stringResource(R.string.content_quality_excluded),
+                        color = LegadoTheme.colorScheme.onSurface,
+                        style = LegadoTheme.typography.labelSmallEmphasized,
+                        modifier = Modifier.padding(horizontal = 2.dp),
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
 
             val shelfIcon = when (shelfState) {
                 BookShelfState.IN_SHELF -> Icons.Default.Check
@@ -106,12 +135,25 @@ fun SearchBookListItem(
                 .weight(1f)
                 .align(Alignment.CenterVertically)
         ) {
-            AppText(
-                text = book.name,
-                style = LegadoTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                AppText(
+                    text = book.name,
+                    modifier = Modifier.weight(1f),
+                    style = LegadoTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                sourceCount?.let { count ->
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextCard(
+                        text = stringResource(R.string.search_book_source_count, count),
+                        cornerRadius = 4.dp,
+                        horizontalPadding = 4.dp,
+                        verticalPadding = 2.dp
+                    )
+                }
+            }
 
             Row {
                 AppText(
@@ -141,7 +183,7 @@ fun SearchBookListItem(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            val intro = book.intro?.replace("\\s+".toRegex(), "") ?: ""
+            val intro = remember(book.intro) { HtmlFormatter.formatSummaryText(book.intro) }
             if (intro.isNotEmpty()) {
                 AppText(
                     text = intro,
@@ -153,17 +195,17 @@ fun SearchBookListItem(
                 )
             }
 
-            val kinds = book.getKindList()
+            val kinds = remember(book.wordCount, book.kind) { book.getKindList() }
             if (kinds.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(4.dp))
-                val lazyListState = rememberLazyListState()
-                LazyRow(
-                    state = lazyListState,
+                val scrollState = rememberScrollState()
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .fadingEdge(lazyListState, gradientWidth = 8.dp)
+                        .fadingEdge(scrollState, gradientWidth = 8.dp)
+                        .horizontalScroll(scrollState)
                 ) {
-                    items(kinds) { kind ->
+                    kinds.forEach { kind ->
                         SearchBookTagChip(text = kind)
                         Spacer(modifier = Modifier.width(6.dp))
                     }
@@ -184,6 +226,7 @@ fun SearchBookGridItem(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     sharedCoverKey: String? = null,
+    qualityMasked: Boolean = false,
 ) {
     Column(
         modifier = modifier
@@ -203,13 +246,34 @@ fun SearchBookGridItem(
                 name = book.name,
                 author = book.author,
                 path = book.coverUrl,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(if (qualityMasked) Modifier.blur(8.dp) else Modifier),
                 sourceOrigin = book.origin,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,
                 sharedCoverKey = sharedCoverKey,
                 showLoadingPlaceholder = sharedCoverKey == null
             )
+
+            if (qualityMasked) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(LegadoTheme.colorScheme.scrim.copy(alpha = 0.58f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    AppText(
+                        text = stringResource(R.string.content_quality_excluded),
+                        color = LegadoTheme.colorScheme.onSurface,
+                        style = LegadoTheme.typography.labelSmallEmphasized,
+                        modifier = Modifier.padding(horizontal = 2.dp),
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
 
             val shelfIcon = when (shelfState) {
                 BookShelfState.IN_SHELF -> Icons.Default.Check

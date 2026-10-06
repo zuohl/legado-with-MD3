@@ -5,8 +5,10 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import com.kyant.backdrop.Backdrop
 import com.materialkolor.PaletteStyle
 import dev.chrisbanes.haze.HazeState
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
@@ -74,7 +76,10 @@ data class LegadoColorScheme(
     val cardContainer: Color,
     val onCardContainer: Color,
     val onSheetContent: Color,
-    val cardPrimaryContainer: Color
+    val cardPrimaryContainer: Color,
+
+    /** 输入框背景色覆盖；未配置时由当前主题引擎提供默认色 */
+    val surfaceInput: Color,
 )
 
 data class LegadoTypography(
@@ -109,15 +114,15 @@ data class LegadoTypography(
 
     )
 
-val LocalLegadoColorScheme = compositionLocalOf<LegadoColorScheme> {
+val LocalLegadoColorScheme = staticCompositionLocalOf<LegadoColorScheme> {
     error("No ColorScheme provided")
 }
 
-val LocalLegadoTypography = compositionLocalOf<LegadoTypography> {
+val LocalLegadoTypography = staticCompositionLocalOf<LegadoTypography> {
     error("No Typography provided")
 }
 
-val LocalLegadoThemeColors = compositionLocalOf {
+val LocalLegadoThemeColors = staticCompositionLocalOf {
     LegadoThemeMode(
         colorScheme = lightColorScheme(),
         isDark = false,
@@ -130,6 +135,9 @@ val LocalLegadoThemeColors = compositionLocalOf {
 }
 
 val LocalHazeState = compositionLocalOf<HazeState?> { null }
+
+/** AppScaffold supplies the content-only source; bars must never write to it. */
+val LocalTopBarBackdrop = compositionLocalOf<Backdrop?> { null }
 
 object LegadoTheme {
 
