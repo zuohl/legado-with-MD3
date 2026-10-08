@@ -2,6 +2,7 @@ package io.legado.app.ui.book.search
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -85,6 +87,7 @@ import io.legado.app.ui.widget.components.list.TopFloatingStickyItem
 import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
 import io.legado.app.ui.widget.components.privacy.rememberPrivateLockedBookUrls
 import io.legado.app.ui.widget.components.progressIndicator.AppCircularProgressIndicator
+import io.legado.app.ui.widget.components.progressIndicator.AppLinearProgressIndicator
 import io.legado.app.ui.widget.components.settingItem.CompactClickableSettingItem
 import io.legado.app.ui.widget.components.settingItem.CompactDropdownSettingItem
 import io.legado.app.ui.widget.components.text.AppText
@@ -387,6 +390,10 @@ fun SearchScreen(
                         },
                     )
                 }
+
+                AnimatedVisibility(visible = state.isSearching) {
+                    AppLinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
             }
         },
         floatingActionButton = {
@@ -608,7 +615,16 @@ fun SearchScreen(
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
+                                    if (state.isSearching) {
+                                        AppCircularProgressIndicator(
+                                            modifier = Modifier
+                                                .padding(end = 6.dp)
+                                                .size(12.dp),
+                                            strokeWidth = 2.dp,
+                                        )
+                                    }
                                     summary.resultText?.let { text ->
                                         AppText(text = text, style = LegadoTheme.typography.labelSmallEmphasized)
                                     }
