@@ -110,7 +110,7 @@ class WebViewModel(
             }
         }
         webView.evaluateJavascript("document.documentElement.outerHTML") { htmlResult ->
-            val pageHtml = StringEscapeUtils.unescapeJson(htmlResult).trim('"')
+            val pageHtml = StringEscapeUtils.unescapeJson(htmlResult)?.trim('"').orEmpty()
             if (refetchAfterSuccess) {
                 execute {
                     val url = intent!!.getStringExtra("url")!!
@@ -121,7 +121,7 @@ class WebViewModel(
                         source = source,
                         coroutineContext = coroutineContext
                     ).getStrResponseAwait(useWebView = false).body
-                    if (refetchedHtml.isNotBlank()) {
+                    if (!refetchedHtml.isNullOrBlank()) {
                         html = refetchedHtml
                         SourceVerificationHelp.setResult(sourceOrigin, refetchedHtml, currentUrl)
                     } else {
