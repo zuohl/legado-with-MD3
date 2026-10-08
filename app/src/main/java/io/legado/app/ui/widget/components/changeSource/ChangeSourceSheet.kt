@@ -154,10 +154,8 @@ fun ChangeSourceSheet(
 
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_RESUME -> viewModel.resume()
-                Lifecycle.Event.ON_PAUSE -> viewModel.pause()
-                else -> Unit
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.resume()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)

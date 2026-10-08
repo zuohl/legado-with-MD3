@@ -397,9 +397,7 @@ fun MainActivity.mainEntryProvider(
             intent = browserIntent,
             viewModel = viewModel,
             onFinish = {
-                if (route.sourceVerificationEnable) {
-                    FlowEventBus.post(EventBus.RESUME_SEARCH_ENGINE, Unit)
-                }
+                FlowEventBus.post(EventBus.RESUME_SEARCH_ENGINE, Unit)
                 onNavigateBack()
             },
             onImportBookSource = { importUrl ->
