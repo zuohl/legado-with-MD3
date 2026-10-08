@@ -12,10 +12,12 @@ import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.BookSourcePart
 import io.legado.app.data.entities.SearchBook
 import io.legado.app.data.repository.BookRepository
+import io.legado.app.constant.EventBus
 import io.legado.app.data.repository.SearchRepository
 import io.legado.app.domain.gateway.ChangeSourceSettingsGateway
 import io.legado.app.domain.model.BookshelfConflict
 import io.legado.app.domain.model.settings.ChangeSourceSettings
+import io.legado.app.domain.usecase.BookSearchControl
 import io.legado.app.domain.usecase.ChangeSourceMigrationOptions
 import io.legado.app.domain.usecase.ChangeSourceSearchEvent
 import io.legado.app.domain.usecase.ChangeSourceSearchUseCase
@@ -24,6 +26,7 @@ import io.legado.app.domain.usecase.GetChapterContentUseCase
 import io.legado.app.help.book.isWebFile
 import io.legado.app.help.book.primaryStr
 import io.legado.app.ui.book.search.SearchScope
+import io.legado.app.utils.eventBus.FlowEventBus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.Dispatchers.Main
@@ -87,8 +90,21 @@ class ChangeBookSourceComposeViewModel(
     )
     val scopeUiState = _scopeUiState.asStateFlow()
 
+    private val searchControl = BookSearchControl()
     private val _isSearching = MutableStateFlow(false)
     val isSearching = _isSearching.asStateFlow()
+
+    private val _isPaused = MutableStateFlow(false)
+    val isPaused = _isPaused.asStateFlow()
+    private var wasSearching = false
+
+    init {
+        viewModelScope.launch {
+            FlowEventBus.with<Unit>(EventBus.RESUME_SEARCH_ENGINE).collect {
+                resume()
+            }
+        }
+    }
 
     private val _changeSourceProgress = MutableStateFlow(0 to "")
     val changeSourceProgress = _changeSourceProgress.asStateFlow()
@@ -225,6 +241,9 @@ class ChangeBookSourceComposeViewModel(
         _changeSourceProgress.value = 0 to ""
         filterResults()
 
+        searchControl.resume()
+        _isPaused.value = false
+
         searchJob = viewModelScope.launch(IO) {
             try {
                 if (removedResults.isNotEmpty()) {
@@ -237,6 +256,7 @@ class ChangeBookSourceComposeViewModel(
                         scope = scope,
                         oldBook = book,
                         fromReadBookActivity = fromReadBookActivity,
+                        control = searchControl,
                     ),
                     emptyScope = scope,
                 )
@@ -283,6 +303,9 @@ class ChangeBookSourceComposeViewModel(
 
                     is ChangeSourceSearchEvent.Finished -> {
                         filterResults()
+                        _isSearching.value = false
+                        _isPaused.value = false
+                        wasSearching = false
                         val isResultEmpty = synchronized(searchResults) {
                             searchResults.isEmpty()
                         }
@@ -297,7 +320,9 @@ class ChangeBookSourceComposeViewModel(
         } catch (error: Throwable) {
             reportSearchError(error)
         } finally {
-            _isSearching.value = false
+            if (!_isPaused.value) {
+                _isSearching.value = false
+            }
         }
     }
 
@@ -314,6 +339,9 @@ class ChangeBookSourceComposeViewModel(
         searchJob?.cancel()
         searchJob = null
         _isSearching.value = false
+        _isPaused.value = false
+        wasSearching = false
+        searchControl.resume()
     }
 
     fun confirmEmptyScopeSearch() {
@@ -333,16 +361,29 @@ class ChangeBookSourceComposeViewModel(
     }
 
     fun startOrStopSearch() {
-        if (searchJob?.isActive == true) {
-            stopSearch()
-        } else {
-            startSearch()
+        when {
+            _isSearching.value -> pause()
+            _isPaused.value -> resume()
+            else -> startSearch()
         }
     }
 
-    fun pause() = Unit
+    fun pause() {
+        if (searchJob?.isActive == true && !_isPaused.value) {
+            wasSearching = true
+            _isPaused.value = true
+            _isSearching.value = false
+            searchControl.pause()
+        }
+    }
 
-    fun resume() = Unit
+    fun resume() {
+        if (_isPaused.value) {
+            _isPaused.value = false
+            _isSearching.value = true
+            searchControl.resume()
+        }
+    }
 
     private fun filterResults() {
         val key = screenKey

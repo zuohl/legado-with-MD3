@@ -58,6 +58,7 @@ class ChangeSourceSearchUseCase(
         scope: io.legado.app.ui.book.search.SearchScope,
         oldBook: Book,
         fromReadBookActivity: Boolean,
+        control: BookSearchControl? = null,
     ): Flow<ChangeSourceSearchEvent> = flow {
         val contentProcessor = ContentProcessor.get(oldBook)
         val settings = changeSourceSettingsGateway.currentSettings
@@ -77,6 +78,7 @@ class ChangeSourceSearchUseCase(
             .mapNotNull { it.getBookSource() }
             .flatMapMerge(concurrency) { source ->
                 flow {
+                    control?.awaitResumed()
                     val books = try {
                         withTimeout(60000L) {
                             searchSource(
@@ -86,7 +88,6 @@ class ChangeSourceSearchUseCase(
                             )
                         }
                     } catch (_: Throwable) {
-                        currentCoroutineContext().ensureActive()
                         emptyList()
                     }
                     emit(ChangeSourceResult(source, books))
@@ -151,7 +152,6 @@ class ChangeSourceSearchUseCase(
                             }
                         }
                     } catch (_: Throwable) {
-                        currentCoroutineContext().ensureActive()
                         null
                     }
                     emit(ChangeSourceRefreshResult(searchBook.originName, loadedBook))

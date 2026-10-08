@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PauseCircleOutline
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.Settings
@@ -108,6 +109,7 @@ fun ChangeSourceSheet(
     val lifecycleOwner = LocalLifecycleOwner.current
     val items by viewModel.searchDataFlow.collectAsStateWithLifecycle(initialValue = emptyList<SearchBook>())
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
+    val isPaused by viewModel.isPaused.collectAsStateWithLifecycle()
     val progress by viewModel.changeSourceProgress.collectAsStateWithLifecycle()
     val groups by viewModel.enabledGroups.collectAsStateWithLifecycle(initialValue = emptyList<String>())
     val enabledSources by viewModel.enabledSources.collectAsStateWithLifecycle(initialValue = emptyList<io.legado.app.data.entities.BookSourcePart>())
@@ -283,6 +285,13 @@ fun ChangeSourceSheet(
                                 dismiss()
                             }
                         )
+                        RoundDropdownMenuItem(
+                            text = stringResource(R.string.refresh),
+                            onClick = {
+                                viewModel.startSearch()
+                                dismiss()
+                            }
+                        )
                     }
                 }
                 MediumTonalButton(
@@ -296,8 +305,18 @@ fun ChangeSourceSheet(
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 MediumTonalButton(
                     onClick = { viewModel.startOrStopSearch() },
-                    icon = if (isSearching) Icons.Default.PauseCircleOutline else Icons.Default.Refresh,
-                    contentDescription = stringResource(if (isSearching) R.string.pause else R.string.refresh),
+                    icon = when {
+                        isSearching -> Icons.Default.PauseCircleOutline
+                        isPaused -> Icons.Default.PlayArrow
+                        else -> Icons.Default.Refresh
+                    },
+                    contentDescription = stringResource(
+                        when {
+                            isSearching -> R.string.pause
+                            isPaused -> R.string.resume
+                            else -> R.string.refresh
+                        }
+                    ),
                 )
                 MediumTonalButton(
                     onClick = { showFilterSheet = true },
