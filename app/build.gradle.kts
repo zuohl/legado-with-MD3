@@ -51,7 +51,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.legato.kazusa"
+        applicationId = project.findProperty("customAppId")?.toString() ?: "io.legato.kazusa"
         minSdk = 26
         targetSdk = 37
         versionCode = System.getenv("COMMIT_NUMBER")?.toInt()?.let { 10000 + it } ?: 32640
@@ -87,7 +87,7 @@ android {
             if (project.hasProperty("RELEASE_STORE_FILE")) {
                 signingConfig = signingConfigs.getByName("myConfig")
             }
-            manifestPlaceholders["app_name"] = "@string/app_name"
+            manifestPlaceholders["app_name"] = project.findProperty("customAppName")?.toString() ?: "@string/app_name"
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -108,7 +108,7 @@ android {
             if (project.hasProperty("RELEASE_STORE_FILE")) {
                 signingConfig = signingConfigs.getByName("myConfig")
             }
-            manifestPlaceholders["app_name"] = "@string/app_name"
+            manifestPlaceholders["app_name"] = project.findProperty("customAppName")?.toString() ?: "@string/app_name"
             versionNameSuffix = "_debug"
             isMinifyEnabled = false
             proguardFiles(

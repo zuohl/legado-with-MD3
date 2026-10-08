@@ -10,6 +10,7 @@ import io.legado.app.constant.AppConst.imagePathKey
 import io.legado.app.constant.SourceType
 import io.legado.app.data.repository.BookSourceRepository
 import io.legado.app.exception.NoStackTraceException
+import io.legado.app.help.http.CookieStore
 import io.legado.app.help.http.newCallResponseBody
 import io.legado.app.help.http.okHttpClient
 import io.legado.app.help.source.SourceHelp
@@ -20,6 +21,7 @@ import io.legado.app.utils.ImageSaveUtils
 import io.legado.app.utils.printOnDebug
 import io.legado.app.utils.toastOnUi
 import org.apache.commons.text.StringEscapeUtils
+import android.webkit.CookieManager as AndroidCookieManager
 
 class WebViewModel(
     application: Application,
@@ -98,29 +100,49 @@ class WebViewModel(
         if (!sourceVerificationEnable) {
             return success.invoke()
         }
-        if (refetchAfterSuccess) {
-            execute {
-                val url = intent!!.getStringExtra("url")!!
-                val source = bookSourceRepository.getBookSource(sourceOrigin)
-                html = AnalyzeUrl(
-                    url,
-                    headerMapF = headerMap,
-                    source = source,
-                    coroutineContext = coroutineContext
-                ).getStrResponseAwait(useWebView = false).body
-                SourceVerificationHelp.setResult(sourceOrigin, html ?: "")
-            }.onSuccess {
-                success.invoke()
-            }.onError {
-                SourceVerificationHelp.checkResult(sourceOrigin)
-                success.invoke()
+        val currentUrl = webView.url?.takeIf { it.isNotBlank() } ?: intent?.getStringExtra("url").orEmpty()
+        if (currentUrl.isNotBlank()) {
+            AndroidCookieManager.getInstance().getCookie(currentUrl)?.let { cookie ->
+                CookieStore.setCookie(currentUrl, cookie)
+                if (sourceOrigin.isNotBlank()) {
+                    CookieStore.setCookie(sourceOrigin, cookie)
+                }
             }
-        } else {
-            webView.evaluateJavascript("document.documentElement.outerHTML") {
+        }
+        webView.evaluateJavascript("document.documentElement.outerHTML") { htmlResult ->
+            val pageHtml = StringEscapeUtils.unescapeJson(htmlResult).trim('"')
+            if (refetchAfterSuccess) {
                 execute {
-                    html = StringEscapeUtils.unescapeJson(it).trim('"')
-                    SourceVerificationHelp.setResult(sourceOrigin, html ?: "")
+                    val url = intent!!.getStringExtra("url")!!
+                    val source = bookSourceRepository.getBookSource(sourceOrigin)
+                    val refetchedHtml = AnalyzeUrl(
+                        url,
+                        headerMapF = headerMap,
+                        source = source,
+                        coroutineContext = coroutineContext
+                    ).getStrResponseAwait(useWebView = false).body
+                    if (refetchedHtml.isNotBlank()) {
+                        html = refetchedHtml
+                        SourceVerificationHelp.setResult(sourceOrigin, refetchedHtml, currentUrl)
+                    } else {
+                        html = pageHtml
+                        SourceVerificationHelp.setResult(sourceOrigin, pageHtml, currentUrl)
+                    }
                 }.onSuccess {
+                    SourceVerificationHelp.checkResult(sourceOrigin)
+                    success.invoke()
+                }.onError {
+                    html = pageHtml
+                    SourceVerificationHelp.setResult(sourceOrigin, pageHtml, currentUrl)
+                    SourceVerificationHelp.checkResult(sourceOrigin)
+                    success.invoke()
+                }
+            } else {
+                execute {
+                    html = pageHtml
+                    SourceVerificationHelp.setResult(sourceOrigin, pageHtml, currentUrl)
+                }.onSuccess {
+                    SourceVerificationHelp.checkResult(sourceOrigin)
                     success.invoke()
                 }.onError {
                     SourceVerificationHelp.checkResult(sourceOrigin)

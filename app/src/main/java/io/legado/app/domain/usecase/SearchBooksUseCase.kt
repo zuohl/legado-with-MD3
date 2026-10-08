@@ -201,7 +201,6 @@ class SearchBooksUseCase(
             }
             SourceSearchResult.Found(books, supportsSearchPage)
         } catch (exception: Throwable) {
-            coroutineContext.ensureActive()
             SourceSearchResult.Failed(exception)
         }
     }

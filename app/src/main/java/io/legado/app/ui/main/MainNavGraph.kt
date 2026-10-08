@@ -38,6 +38,8 @@ import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
 import io.legado.app.R
 import io.legado.app.constant.BookType
+import io.legado.app.constant.EventBus
+import io.legado.app.utils.eventBus.FlowEventBus
 import io.legado.app.core.ui.morph.BookCoverMorphAnchors
 import io.legado.app.core.ui.morph.isAnchorVisibleInScreen
 import io.legado.app.core.ui.player.PlayerMorphAppearance
@@ -394,7 +396,12 @@ fun MainActivity.mainEntryProvider(
         WebViewRouteScreen(
             intent = browserIntent,
             viewModel = viewModel,
-            onFinish = onNavigateBack,
+            onFinish = {
+                if (route.sourceVerificationEnable) {
+                    FlowEventBus.post(EventBus.RESUME_SEARCH_ENGINE, Unit)
+                }
+                onNavigateBack()
+            },
             onImportBookSource = { importUrl ->
                 onNavigateToRoute(MainRouteBookSourceManage(importUrl))
             },

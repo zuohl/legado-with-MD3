@@ -1,0 +1,75 @@
+name: Build Coexist Test APK
+
+on:
+  push:
+    branches:
+      - 'fix/**'
+  workflow_dispatch:
+    inputs:
+      app_id:
+        description: '共存包名 (Application ID)'
+        required: true
+        default: 'io.legato.kazusa.coexist'
+      app_name:
+        description: '应用名称'
+        required: true
+        default: '阅读(测试)'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Clear 18PlusList.txt
+        run: |
+          echo "清空 18PlusList.txt"
+          echo "" > $GITHUB_WORKSPACE/app/src/main/assets/18PlusList.txt
+
+      - name: Remove Aliyun mirrors (unreliable in CI)
+        run: |
+          sed -i '/maven.aliyun.com/d' settings.gradle
+
+      - name: Build Coexist APK
+        run: |
+          chmod +x gradlew
+          APP_ID="${{ github.event.inputs.app_id || 'io.legato.kazusa.coexist' }}"
+          APP_NAME="${{ github.event.inputs.app_name || '阅读(测试)' }}"
+          echo "Building Coexist APK with App ID: $APP_ID, App Name: $APP_NAME"
+          ./gradlew assembleAppDebug \
+            -PcustomAppId="$APP_ID" \
+            -PcustomAppName="$APP_NAME" \
+            -PenableAbiSplits=false \
+            --no-daemon \
+            --no-configuration-cache
+        env:
+          COMMIT_NUMBER: ${{ github.run_number }}
+          APP_VERSION_NAME: coexist-${{ github.run_number }}
+
+      - name: Rename APK Files
+        run: |
+          APK_PATH="$GITHUB_WORKSPACE/app/build/outputs/apk/app/debug"
+          cd "$APK_PATH"
+          mv -- *.apk "legado-coexist-${GITHUB_RUN_NUMBER}.apk"
+          ls -la
+
+      - name: Upload Coexist APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: legado-coexist-apk-${{ github.run_number }}
+          path: app/build/outputs/apk/app/debug/*.apk

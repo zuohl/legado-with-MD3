@@ -2,11 +2,13 @@ package io.legado.app.ui.book.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.legado.app.constant.EventBus
 import io.legado.app.data.entities.BookSourcePart
 import io.legado.app.data.entities.SearchBook
 import io.legado.app.data.local.preferences.LocalPreferencesKeys
 import io.legado.app.data.repository.SearchRepository
 import io.legado.app.data.repository.SettingsRepository
+import io.legado.app.utils.eventBus.FlowEventBus
 import io.legado.app.domain.gateway.DownloadCacheSettingsGateway
 import io.legado.app.domain.model.BookSearchScope
 import io.legado.app.domain.model.ContentQualityConfig
@@ -155,6 +157,11 @@ class SearchViewModel(
                     is BookshelfConflictController.Effect.ShowMessage ->
                         _effects.emit(SearchEffect.ShowMessage(appCtx.getString(effect.messageRes)))
                 }
+            }
+        }
+        viewModelScope.launch {
+            FlowEventBus.with<Unit>(EventBus.RESUME_SEARCH_ENGINE).collect {
+                onIntent(SearchIntent.ResumeEngine)
             }
         }
     }
