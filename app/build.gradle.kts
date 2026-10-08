@@ -36,6 +36,15 @@ android {
     namespace = "io.legado.app"
 
     signingConfigs {
+        getByName("debug") {
+            val localDebugKey = file("debug.keystore")
+            if (localDebugKey.exists()) {
+                storeFile = localDebugKey
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
         if (project.hasProperty("RELEASE_STORE_FILE")) {
             create("myConfig") {
                 storeFile = file(project.property("RELEASE_STORE_FILE") as String)
