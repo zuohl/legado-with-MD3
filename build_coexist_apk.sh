@@ -27,6 +27,30 @@ mkdir -p "$OUTPUT_DIR"
 
 chmod +x ./gradlew
 
+# 临时给 google-services.json 增加自定义包名以通过 google-services 插件校验
+GOOGLE_SERVICES_BACKUP="$PROJECT_DIR/app/google-services.json.bak"
+cp -f "$PROJECT_DIR/app/google-services.json" "$GOOGLE_SERVICES_BACKUP"
+cleanup() {
+    if [[ -f "$GOOGLE_SERVICES_BACKUP" ]]; then
+        mv -f "$GOOGLE_SERVICES_BACKUP" "$PROJECT_DIR/app/google-services.json"
+    fi
+}
+trap cleanup EXIT INT TERM
+
+python3 -c "
+import json
+with open('app/google-services.json', 'r') as f:
+    data = json.load(f)
+packages = [c['client_info']['android_client_info']['package_name'] for c in data.get('client', [])]
+for pkg in ['$APP_ID', f'${APP_ID}.debug']:
+    if pkg not in packages:
+        new_client = json.loads(json.dumps(data['client'][0]))
+        new_client['client_info']['android_client_info']['package_name'] = pkg
+        data['client'].append(new_client)
+with open('app/google-services.json', 'w') as f:
+    json.dump(data, f, indent=2)
+"
+
 # 临时创建一个空 init.gradle 避免用户环境中的全局 init.gradle 覆盖仓库配置导致构建失败
 EMPTY_INIT_FILE="/tmp/legado_empty_init.gradle"
 touch "$EMPTY_INIT_FILE"

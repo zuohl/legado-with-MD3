@@ -45,6 +45,23 @@ jobs:
         run: |
           sed -i '/maven.aliyun.com/d' settings.gradle
 
+      - name: Patch google-services.json for Custom Package Name
+        run: |
+          APP_ID="${{ github.event.inputs.app_id || 'io.legato.kazusa.coexist' }}"
+          python3 -c "
+          import json
+          with open('app/google-services.json', 'r') as f:
+              data = json.load(f)
+          packages = [c['client_info']['android_client_info']['package_name'] for c in data.get('client', [])]
+          for pkg in ['$APP_ID', f'${APP_ID}.debug']:
+              if pkg not in packages:
+                  new_client = json.loads(json.dumps(data['client'][0]))
+                  new_client['client_info']['android_client_info']['package_name'] = pkg
+                  data['client'].append(new_client)
+          with open('app/google-services.json', 'w') as f:
+              json.dump(data, f, indent=2)
+          "
+
       - name: Build Coexist APK
         run: |
           chmod +x gradlew
